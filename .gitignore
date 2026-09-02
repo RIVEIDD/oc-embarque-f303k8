@@ -1,0 +1,22 @@
+# Build artefacts (par TP)
+build/
+*.o
+*.elf
+*.bin
+*.hex
+*.map
+*.list
+*.d
+
+# Outils
+.cache/
+*.gdb_history
+.gdbinit.local
+
+# Editeurs / OS
+.vscode/*
+!.vscode/settings.json
+!.vscode/tasks.json
+!.vscode/launch.json
+!.vscode/c_cpp_properties.json
+.DS_Store
