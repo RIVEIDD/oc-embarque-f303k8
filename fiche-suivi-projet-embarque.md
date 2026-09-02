@@ -14,6 +14,8 @@ en bare-metal/CMSIS (pas de framework Arduino, pas de HAL complete ST -
 acces registre direct comme le cours), sous Linux (WSL2 Ubuntu 24.04) avec
 Git pour versionner chaque TP.
 
+Depot GitHub (public) : https://github.com/RIVEIDD/oc-embarque-f303k8
+
 Voir aussi :
 - [`docs/correspondance-f103-f303.md`](docs/correspondance-f103-f303.md) -
   tableau de correspondance registres/GPIO/timers F103 -> F303
@@ -24,7 +26,8 @@ Voir aussi :
 
 | Date | Fait |
 |---|---|
-| 2026-09-02 | Setup initial : verification toolchain (arm-none-eabi-gcc 13.2.1, gdb-multiarch 15.1, openocd 0.12.0, make 4.3 - tous deja presents) ; mise en place environnement bare-metal (CMSIS ST vendorise dans `vendor/`, linker script `common/linker/STM32F303K8Tx_FLASH.ld` pour Flash 64K/RAM 12K, startup officiel `startup_stm32f303x8.s`, Makefile partage `common/mk/common.mk`) ; build de `tp00-smoke-test` (blink LD3/PB3) valide avec succes en local (compile+link, non flashe : ST-LINK pas encore visible depuis WSL) ; init du repo Git avec `.gitignore` ; tableau de correspondance F103RB->F303K8 redige (`docs/correspondance-f103-f303.md`) ; proposition de decoupage des TP + usage breadboard (`docs/organisation-tp.md`) ; gabarit de TP reutilisable (`template-tp/`). |
+| 2026-09-02 | Setup initial : verification toolchain (arm-none-eabi-gcc 13.2.1, gdb-multiarch 15.1, openocd 0.12.0, make 4.3 - tous deja presents) ; mise en place environnement bare-metal (CMSIS ST vendorise dans `vendor/`, linker script `common/linker/STM32F303K8Tx_FLASH.ld` pour Flash 64K/RAM 12K, startup officiel `startup_stm32f303x8.s`, Makefile partage `common/mk/common.mk`) ; build de `tp00-smoke-test` (blink LD3/PB3) valide avec succes en local (compile+link, non flashe : ST-LINK pas encore visible depuis WSL) ; init du repo Git avec `.gitignore` ; tableau de correspondance F103RB->F303K8 redige (`docs/correspondance-f103-f303.md`) ; proposition de decoupage des TP + usage breadboard (`docs/organisation-tp.md`) ; gabarit de TP reutilisable (`template-tp/`). Skill Claude reutilisable proposee mais reportee (utilisateur prefere attendre 1-2 TP reels avant de la figer). |
+| 2026-09-02 | Publication GitHub : installation de `gh` + `gh auth login` (compte RIVEIDD) par l'utilisateur, cle d'hote GitHub ajoutee a `~/.ssh/known_hosts` (SSH bloque par defaut sous WSL2 sans `ssh-askpass`), creation du depot public `RIVEIDD/oc-embarque-f303k8` et push des 2 commits existants (`origin/master` tracke). |
 
 ## Procedures d'installation / reprise
 
