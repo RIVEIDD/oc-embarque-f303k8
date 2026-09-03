@@ -208,6 +208,12 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
       (propose, pas encore fait)
 - [ ] Committer `tp02-premier-blink` (l'utilisateur gere ses commits de TP
       lui-meme)
+- [ ] Expliquer en detail le fonctionnement des Makefiles du projet
+      (`common/mk/common.mk` partage + Makefile fin par TP qui l'inclut :
+      variables TARGET/SRCS/INCDIRS, regles de build, targets flash/debug)
+- [ ] Expliquer ce qu'est un fichier `CLAUDE.md` (instructions
+      projet persistantes pour Claude Code) et si ca vaut le coup d'en
+      creer un ici (le repo n'en a pas actuellement)
 - [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
       interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
       `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
