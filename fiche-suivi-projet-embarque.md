@@ -30,6 +30,7 @@ Voir aussi :
 | 2026-09-02 | Publication GitHub : installation de `gh` + `gh auth login` (compte RIVEIDD) par l'utilisateur, cle d'hote GitHub ajoutee a `~/.ssh/known_hosts` (SSH bloque par defaut sous WSL2 sans `ssh-askpass`), creation du depot public `RIVEIDD/oc-embarque-f303k8` et push des 2 commits existants (`origin/master` tracke). |
 | 2026-09-03 | `tp01-hello-uart` cree (USART2/PA2 -> "Hello, world!" en boucle, VCP ST-LINK) - exceptionnellement ecrit entierement par Claude a la demande explicite de l'utilisateur pour valider l'environnement, build+link valides en local (920 B Flash). Tentative de passage ST-LINK -> WSL2 via usbipd : blocage sur `usbipd bind` (etat reste `Not shared`), piste principale = PowerShell non lance en administrateur ; pas encore flashe/teste sur la carte reelle. Procedures `make flash` et `picocom` detaillees ci-dessous. |
 | 2026-09-03 | ST-LINK debloque cote WSL2 (`usbipd bind` en admin) - `make flash` operationnel. `tp02-premier-blink` cree et **ecrit par l'utilisateur en autonomie** (guidage Claude uniquement) : transposition du tout premier exemple du cours (toggle PA5/CRL sur F103) vers PB3/MODER sur F303K8. Deux allers-retours de debug guides : (1) LED figee car boucle sans delai (toggle a une frequence bien superieure a la persistance retinienne) -> ajout d'un `delay()` a base de `__NOP()` ; (2) masque `0xF` (4 bits, style CRL) au lieu de `0x3` (2 bits, style MODER) sur la config de `GPIOB->MODER`, sans consequence ici mais corrige par l'utilisateur (note dans "Pieges rencontres" ci-dessous). Premiere session GDB complete (`make debug`, breakpoints, `next`/`continue`, inspection registre via `print/x`) - confirmee fonctionnelle sur la carte reelle, cf. procedures ci-dessous. Environnement valide de bout en bout : build + flash + execution autonome + debug GDB sur le vrai NUCLEO-F303K8. |
+| 2026-09-04 | Fonctionnement detaille des Makefiles explique (mecanisme `MAKEFILE_LIST`/`vpath`/regles generiques de `common/mk/common.mk`). Creation de `CLAUDE.md` a la racine du repo (contexte, regle "guider pas coder a la place de l'utilisateur", structure, commandes de build, pieges F103->F303 recurrents, protocole fiche de suivi). Demarrage de `tp03_premier-projet` (chapitre "Entrainez-vous en creant un projet", Partie 1) : les ressources telechargees du cours (`librairie.lib` + `functions.h` avec prototypes vides) ont ete diagnostiquees comme **incompatibles avec notre toolchain** - `librairie.lib` est une archive `ar` valide mais ses objets internes sont compiles avec ARM Compiler 5 (`armcc`, Keil MDK-ARM/µVision), un format non linkable par `arm-none-eabi-gcc`/GNU ld (confirme via `file`/`ar t`/`xxd`, chaine `Component: ARM Compiler 5.06` visible dans le binaire). Decision utilisateur : reproduire l'esprit du TP (multi-fichiers) avec un `functions.c` maison plutot que sauter le chapitre ou tenter de decompiler le `.lib`. TARGET du Makefile corrige, `functions.c` pas encore ecrit (`make flash` echoue actuellement avec `No rule to make target 'build/functions.o'` - normal, fichier source manquant). |
 
 ## Procedures d'installation / reprise
 
@@ -198,6 +199,17 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
   configurees sur le meme port, ca ecrasera une config deja faite. Le
   masque correct pour 2 bits serait `0x3` au lieu de `0xF`.
 
+- **Ressources telechargeables du cours (`.lib`)** : certains chapitres
+  (ex. "Entrainez-vous en creant un projet") fournissent un `.lib`
+  precompile avec Keil ARM Compiler 5 (`armcc`), pense pour etre linke
+  dans µVision - incompatible avec `arm-none-eabi-gcc`/GNU ld. Verifier
+  avec `file mon.lib` (doit dire "current ar archive" - format conteneur
+  OK) puis extraire un membre (`ar x mon.lib`) et regarder ses premiers
+  octets (`xxd`) : la chaine `Component: ARM Compiler` confirme
+  l'incompatibilite. Pas une erreur de manipulation, juste un ecart
+  d'outillage a anticiper sur les prochains chapitres avec ressources
+  telechargeables.
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -206,14 +218,11 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
 - [ ] (optionnel) Nettoyer les logs OpenOCD/GDB entremeles en redirigeant
       la sortie d'OpenOCD vers un fichier dans `common/mk/common.mk`
       (propose, pas encore fait)
-- [ ] Committer `tp02-premier-blink` (l'utilisateur gere ses commits de TP
-      lui-meme)
-- [ ] Expliquer en detail le fonctionnement des Makefiles du projet
-      (`common/mk/common.mk` partage + Makefile fin par TP qui l'inclut :
-      variables TARGET/SRCS/INCDIRS, regles de build, targets flash/debug)
-- [ ] Expliquer ce qu'est un fichier `CLAUDE.md` (instructions
-      projet persistantes pour Claude Code) et si ca vaut le coup d'en
-      creer un ici (le repo n'en a pas actuellement)
+- [ ] Ecrire `tp03_premier-projet/src/functions.c` (implementer
+      `function1(int)`/`function2(void)` conformement a `functions.h`),
+      l'ajouter au build (`SRCS` deja mis a jour dans le Makefile), puis
+      `make flash`. Decider si `librairie.lib` (inutilisable) est
+      supprime ou garde de cote.
 - [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
       interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
       `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
