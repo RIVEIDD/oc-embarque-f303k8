@@ -31,6 +31,7 @@ Voir aussi :
 | 2026-09-03 | `tp01-hello-uart` cree (USART2/PA2 -> "Hello, world!" en boucle, VCP ST-LINK) - exceptionnellement ecrit entierement par Claude a la demande explicite de l'utilisateur pour valider l'environnement, build+link valides en local (920 B Flash). Tentative de passage ST-LINK -> WSL2 via usbipd : blocage sur `usbipd bind` (etat reste `Not shared`), piste principale = PowerShell non lance en administrateur ; pas encore flashe/teste sur la carte reelle. Procedures `make flash` et `picocom` detaillees ci-dessous. |
 | 2026-09-03 | ST-LINK debloque cote WSL2 (`usbipd bind` en admin) - `make flash` operationnel. `tp02-premier-blink` cree et **ecrit par l'utilisateur en autonomie** (guidage Claude uniquement) : transposition du tout premier exemple du cours (toggle PA5/CRL sur F103) vers PB3/MODER sur F303K8. Deux allers-retours de debug guides : (1) LED figee car boucle sans delai (toggle a une frequence bien superieure a la persistance retinienne) -> ajout d'un `delay()` a base de `__NOP()` ; (2) masque `0xF` (4 bits, style CRL) au lieu de `0x3` (2 bits, style MODER) sur la config de `GPIOB->MODER`, sans consequence ici mais corrige par l'utilisateur (note dans "Pieges rencontres" ci-dessous). Premiere session GDB complete (`make debug`, breakpoints, `next`/`continue`, inspection registre via `print/x`) - confirmee fonctionnelle sur la carte reelle, cf. procedures ci-dessous. Environnement valide de bout en bout : build + flash + execution autonome + debug GDB sur le vrai NUCLEO-F303K8. |
 | 2026-09-04 | Fonctionnement detaille des Makefiles explique (mecanisme `MAKEFILE_LIST`/`vpath`/regles generiques de `common/mk/common.mk`). Creation de `CLAUDE.md` a la racine du repo (contexte, regle "guider pas coder a la place de l'utilisateur", structure, commandes de build, pieges F103->F303 recurrents, protocole fiche de suivi). Demarrage de `tp03_premier-projet` (chapitre "Entrainez-vous en creant un projet", Partie 1) : les ressources telechargees du cours (`librairie.lib` + `functions.h` avec prototypes vides) ont ete diagnostiquees comme **incompatibles avec notre toolchain** - `librairie.lib` est une archive `ar` valide mais ses objets internes sont compiles avec ARM Compiler 5 (`armcc`, Keil MDK-ARM/µVision), un format non linkable par `arm-none-eabi-gcc`/GNU ld (confirme via `file`/`ar t`/`xxd`, chaine `Component: ARM Compiler 5.06` visible dans le binaire). Decision utilisateur : reproduire l'esprit du TP (multi-fichiers) avec un `functions.c` maison plutot que sauter le chapitre ou tenter de decompiler le `.lib`. TARGET du Makefile corrige, `functions.c` pas encore ecrit (`make flash` echoue actuellement avec `No rule to make target 'build/functions.o'` - normal, fichier source manquant). |
+| 2026-09-07 | Reprise de session : `functions.c` de `tp03_premier-projet` toujours pas ecrit (bloquant identique a la pause precedente, pas retraite cette session). Lecture de la Partie 2 du cours ("Comprenez l'execution d'un programme") - 3 chapitres theoriques resumes dans la nouvelle section "Notes de cours" ci-dessous : Introduction (composants processeur, familles microprocesseur/DSP/microcontroleur/FPGA), Architecture programmable ARM (Harvard, 17 registres, RISC, load/store LDR/STR, flags xPSR, ARMv7 vs v8), Memoire dans les architectures ARM (alignement 32 bits, little-endian, 5 modes d'adressage, pool litteral). Aucun code de TP modifie cette session - uniquement de la prise de notes de cours, Partie 2 etant theorique/generique (pas de specificite F103 vs F303). |
 
 ## Procedures d'installation / reprise
 
@@ -210,6 +211,124 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
   d'outillage a anticiper sur les prochains chapitres avec ressources
   telechargeables.
 
+## Notes de cours (parties theoriques)
+
+Chapitres sans TP materiel associe (concepts generiques, valables aussi
+bien sur F103RB que F303K8) - resumes ici plutot que dans un dossier
+`tpNN-.../`, cf. `docs/organisation-tp.md` §1.
+
+### Partie 2 - Introduction (architecture processeur)
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4604781-introduction)
+
+Objectif du chapitre : poser le vocabulaire des composants d'architecture
+processeur qui permettent l'execution du code sur une cible embarquee.
+
+**Composants d'une architecture processeur :**
+- **ALU** (Arithmetic Logic Unit) : effectue les calculs entiers (8/16/32
+  bits) - addition, soustraction, multiplication, operations logiques,
+  manipulations de bits.
+- **Banc de registres** : memoire d'acces rapide directement connectee a
+  l'ALU. Inclut des registres speciaux : **PC** (Program Counter, adresse
+  de la prochaine instruction), registre d'etat (flags), **SP** (Stack
+  Pointer, pointeur de pile).
+- **ROM/Flash** : memoire non volatile, contient le code executable.
+- **RAM** : memoire volatile lecture/ecriture, contient les variables du
+  programme et les valeurs initialisees copiees depuis la ROM au demarrage
+  (mecanisme deja rencontre concretement : c'est exactement ce que fait
+  `Reset_Handler` dans `vendor/startup/startup_stm32f303x8.s` en copiant
+  `.data` de la Flash vers la RAM avant `main()`).
+- **Pile systeme (stack)** : structure LIFO en RAM, stocke les infos
+  critiques lors des interruptions et des appels de fonction (adresse de
+  retour, registres sauvegardes).
+
+**Familles de processeurs :**
+- **Microprocesseur** : multi-coeurs, haute puissance, necessite un OS -
+  pas adapte a l'embarque pur.
+- **DSP** (Digital Signal Processing) : optimise pour le traitement rapide
+  du signal.
+- **Microcontroleur** : puissance moindre, peripheriques integres - le
+  choix standard pour l'embarque (c'est la categorie du STM32F103RB comme
+  du STM32F303K8).
+- **FPGA** : circuit logique reconfigurable, tres flexible mais necessite
+  un langage de programmation different (VHDL/Verilog), hors perimetre de
+  ce cours.
+
+### Partie 2 - Decouvrez les grandes lignes de l'architecture programmable ARM
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4604956-decouvrez-les-grandes-lignes-de-l-architecture-programmable-arm)
+
+**ARM (l'entreprise)** concoit des architectures de coeur processeur mais
+ne fabrique rien elle-meme : elle licencie ses designs a des fondeurs qui
+y ajoutent memoire et peripheriques pour creer des familles de produits
+(ex. la famille STM32F10x... et par extension STM32F3xx pour notre carte).
+
+**Architecture Harvard** : separe physiquement les acces a la "memoire de
+code" (programme) et a la "memoire de donnees" (variables) - contrairement
+a une architecture Von Neumann qui partage un bus unique pour les deux.
+
+**Jeu de registres (ARMv7, 32 bits) - 17 registres :**
+- **R0-R12** : 13 registres generaux
+- **SP** (R13, Stack Pointer), **LR** (R14, Link Register - adresse de
+  retour d'un appel de fonction), **PC** (R15, Program Counter)
+- **xPSR** (registre d'etat, variantes APSR/EPSR/IPSR)
+- Registres de controle additionnels : PRIMASK, FAULTMASK, BASEPRI,
+  CONTROL (gestion des priorites d'interruption, mode privilegie/non
+  privilegie)
+
+**RISC** (Reduced Instruction Set Computer) : jeu d'instructions reduit et
+simple plutot que complexe (CISC). L'ALU fait de l'arithmetique entiere
+(add/sub/mul/div) et de la logique (comparaison, AND, OR).
+
+**Architecture load/store** : la memoire n'est accessible que par 2
+instructions dediees, **LDR** (Load Register - charge un registre depuis
+la memoire) et **STR** (STore Register - ecrit un registre en memoire).
+Aucune operation ALU ne travaille directement sur la memoire : tout doit
+d'abord passer par un registre. C'est le mecanisme derriere l'acces aux
+peripheriques memory-mapped (ex. `GPIOB->ODR = ...` se traduit en un
+`STR` vers l'adresse du registre).
+
+**Flags de statut (registre xPSR)**, mis a jour optionnellement par une
+instruction via le suffixe **S** :
+- **C** (Carry) : retenue/depassement non signe
+- **Z** (Zero) : resultat nul
+- **N** (Negative) : bit de signe du resultat
+- **V** (oVerflow) : depassement signe
+- **Q** (saturation) : utilise avec les instructions USAT/SSAT
+
+**Versions d'architecture** : ARMv7 (standard 32 bits actuel, celle du
+cours et de nos deux cartes - Cortex-M3 pour le F103RB, Cortex-M4F pour
+le F303K8, tous deux ARMv7-M) vs ARMv8 (2014, permet le 64 bits - hors
+perimetre ici).
+
+### Partie 2 - Explorez la memoire dans les architectures ARM
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4605171-explorez-la-memoire-dans-les-architectures-arm)
+
+**Alignement "doublement pair"** : une valeur 32 bits doit commencer a une
+adresse dont les 2 derniers bits sont a 0 (adresse multiple de 4) pour
+fonctionner correctement. Exemple du cours : une variable `int Locale`
+placee au tout debut de la RAM du STM32 occupe `0x20000000`-`0x20000003`
+(4 octets), un tableau de `char Carac` juste apres. `0x20000000` est
+justement l'adresse de debut de la RAM sur nos deux cartes (F103RB comme
+F303K8) - meme si la taille totale de RAM differe (20K vs 12K, cf.
+`docs/correspondance-f103-f303.md`).
+
+**Little-endian** : ARM range l'octet de poids faible a l'adresse la plus
+basse ("a l'envers" par rapport a une lecture naturelle). Une valeur 32
+bits est donc stockee en 4 octets dans l'ordre inverse de sa valeur
+mathematique. Un tableau de `char` (1 octet/element) n'est lui pas
+concerne, chaque element tenant sur une seule adresse.
+
+**Modes d'adressage memoire** (utilises par `LDR`/`STR`, cf. page
+precedente sur l'architecture load/store) :
+1. **Indirection directe** : `LDR Rt,[Rn]` - lit a l'adresse contenue dans Rn
+2. **Avec offset** : `LDR Rt,[Rn,#±imm8]` - ajoute un decalage sans modifier Rn
+3. **Indexe par registre** : `LDR Rt,[Rn,Rm]` - ideal pour parcourir un tableau
+4. **Post-incrementation** : `LDR Rt,[Rn],#±imm8` - Rn modifie APRES le transfert
+5. **Pre-incrementation** : `LDR Rt,[Rn,#±imm8]!` - Rn modifie AVANT le transfert
+
+**Pool litteral** : une valeur immediate trop grande pour tenir dans
+l'encodage d'une instruction est stockee juste apres le code, et chargee
+via un acces indirect relatif au PC (Program Counter).
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -223,6 +342,11 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
       l'ajouter au build (`SRCS` deja mis a jour dans le Makefile), puis
       `make flash`. Decider si `librairie.lib` (inutilisable) est
       supprime ou garde de cote.
+- [ ] Continuer la lecture de la Partie 2 (theorique, notes a ajouter dans
+      "Notes de cours" ci-dessus au fur et a mesure) : "Utilisez les
+      procedures et la pile systeme", "Maitrisez les exceptions et les
+      interruptions", "Faites le lien entre la compilation C et
+      l'assembleur", puis le quiz de fin de partie
 - [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
       interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
       `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
