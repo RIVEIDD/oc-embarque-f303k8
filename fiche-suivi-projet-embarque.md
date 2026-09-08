@@ -32,6 +32,7 @@ Voir aussi :
 | 2026-09-03 | ST-LINK debloque cote WSL2 (`usbipd bind` en admin) - `make flash` operationnel. `tp02-premier-blink` cree et **ecrit par l'utilisateur en autonomie** (guidage Claude uniquement) : transposition du tout premier exemple du cours (toggle PA5/CRL sur F103) vers PB3/MODER sur F303K8. Deux allers-retours de debug guides : (1) LED figee car boucle sans delai (toggle a une frequence bien superieure a la persistance retinienne) -> ajout d'un `delay()` a base de `__NOP()` ; (2) masque `0xF` (4 bits, style CRL) au lieu de `0x3` (2 bits, style MODER) sur la config de `GPIOB->MODER`, sans consequence ici mais corrige par l'utilisateur (note dans "Pieges rencontres" ci-dessous). Premiere session GDB complete (`make debug`, breakpoints, `next`/`continue`, inspection registre via `print/x`) - confirmee fonctionnelle sur la carte reelle, cf. procedures ci-dessous. Environnement valide de bout en bout : build + flash + execution autonome + debug GDB sur le vrai NUCLEO-F303K8. |
 | 2026-09-04 | Fonctionnement detaille des Makefiles explique (mecanisme `MAKEFILE_LIST`/`vpath`/regles generiques de `common/mk/common.mk`). Creation de `CLAUDE.md` a la racine du repo (contexte, regle "guider pas coder a la place de l'utilisateur", structure, commandes de build, pieges F103->F303 recurrents, protocole fiche de suivi). Demarrage de `tp03_premier-projet` (chapitre "Entrainez-vous en creant un projet", Partie 1) : les ressources telechargees du cours (`librairie.lib` + `functions.h` avec prototypes vides) ont ete diagnostiquees comme **incompatibles avec notre toolchain** - `librairie.lib` est une archive `ar` valide mais ses objets internes sont compiles avec ARM Compiler 5 (`armcc`, Keil MDK-ARM/µVision), un format non linkable par `arm-none-eabi-gcc`/GNU ld (confirme via `file`/`ar t`/`xxd`, chaine `Component: ARM Compiler 5.06` visible dans le binaire). Decision utilisateur : reproduire l'esprit du TP (multi-fichiers) avec un `functions.c` maison plutot que sauter le chapitre ou tenter de decompiler le `.lib`. TARGET du Makefile corrige, `functions.c` pas encore ecrit (`make flash` echoue actuellement avec `No rule to make target 'build/functions.o'` - normal, fichier source manquant). |
 | 2026-09-07 | Reprise de session : `functions.c` de `tp03_premier-projet` toujours pas ecrit (bloquant identique a la pause precedente, pas retraite cette session). Lecture de la Partie 2 du cours ("Comprenez l'execution d'un programme") - 3 chapitres theoriques resumes dans la nouvelle section "Notes de cours" ci-dessous : Introduction (composants processeur, familles microprocesseur/DSP/microcontroleur/FPGA), Architecture programmable ARM (Harvard, 17 registres, RISC, load/store LDR/STR, flags xPSR, ARMv7 vs v8), Memoire dans les architectures ARM (alignement 32 bits, little-endian, 5 modes d'adressage, pool litteral). Aucun code de TP modifie cette session - uniquement de la prise de notes de cours, Partie 2 etant theorique/generique (pas de specificite F103 vs F303). |
+| 2026-09-08 | Suite et fin de la lecture de la Partie 2 : 3 derniers chapitres resumes dans "Notes de cours" - Procedures et pile systeme (BL/LR/BX LR, PUSH/POP, convention R0-R3, lien fait avec `_Min_Stack_Size = 0x400` deja present dans notre linker script), Exceptions et interruptions (IVT, empilage automatique, NVIC ISER/IP, lien fait avec le mecanisme `.weak`/`Default_Handler` deja utilise dans `vendor/startup/startup_stm32f303x8.s`), Compilation C/assembleur (chaine Keil mise en correspondance avec notre toolchain GNU - `.map`/`.elf`/`.ld` deja produits par `common.mk` - et piege note sur `__asm{}` Keil vs `asm volatile()` GCC). Partie 2 quasi terminee (reste le quiz recapitulatif). `functions.c` de `tp03_premier-projet` toujours pas ecrit - reste le blocage principal cote pratique. |
 
 ## Procedures d'installation / reprise
 
@@ -329,6 +330,133 @@ precedente sur l'architecture load/store) :
 l'encodage d'une instruction est stockee juste apres le code, et chargee
 via un acces indirect relatif au PC (Program Counter).
 
+### Partie 2 - Utilisez les procedures et la pile systeme
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4610331-utilisez-les-procedures-et-la-pile-systeme)
+
+**Appel de procedure** : l'instruction **BL** (Branch and Link) saute vers
+une fonction en memorisant l'adresse de retour dans **LR** (Link
+Register). Le retour se fait via **BX LR** (saut a l'adresse contenue
+dans LR).
+
+**Convention d'appel (registres)** :
+- **R0-R3** : jusqu'a 4 arguments d'entree, dans l'ordre
+- **R0** (ou R0-R1 pour un resultat 64 bits) : valeur de retour
+- **LR** : adresse de retour, ecrite automatiquement par `BL`
+
+**Pile systeme (SP, LIFO)** :
+- **PUSH** : decremente SP de 4 (pre-decrement), PUIS ecrit la donnee
+- **POP** : lit a l'adresse pointee par SP, PUIS incremente SP de 4
+- Taille par defaut : **1024 octets** definis dans le fichier de demarrage
+  - correspond exactement a `_Min_Stack_Size = 0x400;` (0x400 = 1024) dans
+    notre `common/linker/STM32F303K8Tx_FLASH.ld` : meme convention que le
+    cours, deja en place dans notre projet sans qu'on l'ait nomme ainsi.
+
+**A quoi sert la pile, concretement :**
+1. **Sauvegarder LR avant un appel imbrique** : si une fonction A appelle
+   une fonction B, LR est ecrase par l'appel a B. A doit donc faire
+   `PUSH {LR}` en entree et `POP {PC}` en sortie (restaure LR ET fait le
+   retour en une seule instruction, puisqu'on pop directement dans PC).
+2. **Arguments au-dela de 4** : les arguments supplementaires (au-dela de
+   R0-R3) sont places sur la pile, lus par la fonction appelee via un
+   adressage relatif a SP.
+3. **Variables locales volumineuses** (tableaux, etc.) : le compilateur
+   decremente SP au prologue de la fonction (reserve de l'espace) et le
+   restaure a l'epilogue ; acces via offset relatif a SP.
+
+Point cle : "la pile systeme est une zone memoire commune a l'ensemble de
+l'application embarquee" - une seule pile partagee par tout le programme
+(main + toutes les fonctions + gestionnaires d'interruption), pas une pile
+par fonction.
+
+### Partie 2 - Maitrisez les exceptions et les interruptions
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4636746-maitrisez-les-exceptions-et-les-interruptions)
+
+**Exceptions vs interruptions** : meme mecanisme de traitement pour 3 cas
+distincts - defaillance materielle (exception), erreur d'execution
+(exception), demande d'un peripherique (interruption).
+
+**Table des vecteurs d'interruption (IVT)** : reside a l'adresse
+`0x00000000`, jusqu'a 255 entrees sur Cortex-M3. 2 entrees obligatoires :
+position 0 = SP initial, position 1 = adresse de reset (PC). Construite a
+la compilation/edition de liens, avec des gestionnaires par defaut
+(symboles **weak**) redefinissables par l'utilisateur - **exactement le
+mecanisme deja utilise dans `vendor/startup/startup_stm32f303x8.s`** :
+chaque `..._IRQHandler` y est declare `.weak` et alias vers
+`Default_Handler`, donc definir une fonction `void TIM2_IRQHandler(void)`
+dans notre propre code l'ecrase automatiquement sans erreur de linker.
+
+**Deroulement lors d'une interruption :**
+1. L'instruction en cours se termine
+2. Le CPU sauvegarde automatiquement R0-R3, R12, l'adresse de retour,
+   xPSR et LR sur la pile systeme (empilage automatique - pas besoin de
+   `PUSH` explicite comme pour un appel de fonction classique)
+3. Un code special (`0xFFFFFFFx`) est place dans LR, signalant un retour
+   d'interruption
+4. Le CPU lit le numero d'interruption et recupere l'adresse du
+   gestionnaire correspondant dans l'IVT
+5. Cette adresse est chargee dans PC
+
+**Retour d'interruption** : `BX LR` avec la valeur speciale dans LR est
+reconnu par le Cortex-M comme une sortie d'interruption (restaure
+automatiquement les registres empiles a l'etape 2).
+
+**NVIC (Nested Vectored Interrupt Controller)** - gere priorites et
+autorisations :
+- Priorites : 0-255 en theorie, mais **0-15 sur STM32** (valeur plus
+  basse = priorite plus haute)
+- `ISER`/`ICER` : active/desactive une interruption donnee
+- `ISPR`/`ICPR` : force/efface l'etat "en attente" d'une interruption
+- `IABR` : lecture seule, indique les interruptions actives
+- `IP` : registres de priorite (8 bits par entree)
+
+**Implementer un gestionnaire en C** : signature obligatoire
+`void NomDuHandler(void)`, nom impose par la table des vecteurs (ex.
+`TIM2_IRQHandler`) - pas de parametres possibles, communication avec le
+reste du programme via variables globales (souvent `volatile`).
+
+**Etapes de configuration d'une interruption :**
+1. Definir la fonction handler avec le nom exact attendu
+2. Regler sa priorite via `NVIC->IP[n]`
+3. L'activer via `NVIC->ISER[x]`
+4. Configurer le peripherique lui-meme pour qu'il genere l'interruption
+
+Ce chapitre est generique Cortex-M (M3 comme M4F) - seuls les **noms et
+numeros d'IRQ** different entre F103 et F303 (deja documente dans
+`docs/correspondance-f103-f303.md` §8), le mecanisme NVIC/pile/vecteurs
+lui-meme est identique.
+
+### Partie 2 - Faites le lien entre la compilation C et l'assembleur
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4636751-faites-le-lien-entre-la-compilation-c-et-l-assembleur)
+
+**Chaine de compilation (vocabulaire Keil/µVision du cours) :**
+1. **Editeur** : saisie du code
+2. **Compilateur** : C -> assembleur compatible processeur
+3. **Assembleur** : assembleur -> fichiers objets incomplets
+4. **Linker (editeur de liens)** : combine les objets, attribue les
+   adresses physiques finales
+5. **Loader** : transfere l'image du programme en memoire cible
+6. **Debugger** : observation/controle a l'execution
+
+**Fichiers produits, avec leur equivalent GNU deja utilise dans ce
+projet :**
+| Cours (Keil) | Role | Notre equivalent GNU |
+|---|---|---|
+| `*.lst` | listing, erreurs compil/assemblage | sortie stdout de `arm-none-eabi-gcc` |
+| `*.map` | organisation memoire, adresses variables/fonctions | `build/*.map` (deja genere via `-Wl,-Map=...` dans `common.mk`) |
+| `*.axf`/`*.elf`/`*.hex` | image executable | `build/*.elf` et `build/*.hex` (deja produits) |
+| `*.lib` | bibliotheque d'objets reutilisables | equivalent GNU : `*.a` (via `arm-none-eabi-ar`) - **pas le meme format**, cf. piege `librairie.lib`/Keil deja rencontre sur `tp03` |
+| `*.sct`/`*.ld` (scatter file) | specification memoire pour le linker | notre `common/linker/STM32F303K8Tx_FLASH.ld` (syntaxe GNU `MEMORY`/`SECTIONS`, differente du format `.sct` Keil mais meme role) |
+
+**Convention d'appel C/asm** (deja vue en detail dans le chapitre
+precedent) : jusqu'a 4 arguments en R0-R3, retour en R0 (ou R0-R1 pour un
+resultat 64 bits).
+
+**Assembleur inline** : le cours utilise la syntaxe Keil `__asm { ... }`.
+**Avec GCC, la syntaxe est differente** : `asm volatile ("...")` (GNU
+extended asm) ou `__asm__(...)`. A garder en tete si on veut un jour
+inserer de l'assembleur inline dans un TP - ne pas copier `__asm { }` du
+cours tel quel, ca ne compilera pas avec `arm-none-eabi-gcc`.
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -342,11 +470,8 @@ via un acces indirect relatif au PC (Program Counter).
       l'ajouter au build (`SRCS` deja mis a jour dans le Makefile), puis
       `make flash`. Decider si `librairie.lib` (inutilisable) est
       supprime ou garde de cote.
-- [ ] Continuer la lecture de la Partie 2 (theorique, notes a ajouter dans
-      "Notes de cours" ci-dessus au fur et a mesure) : "Utilisez les
-      procedures et la pile systeme", "Maitrisez les exceptions et les
-      interruptions", "Faites le lien entre la compilation C et
-      l'assembleur", puis le quiz de fin de partie
+- [ ] Terminer la Partie 2 : quiz de fin de partie ("Les grands principes
+      de l'execution")
 - [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
       interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
       `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
