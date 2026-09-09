@@ -33,6 +33,7 @@ Voir aussi :
 | 2026-09-04 | Fonctionnement detaille des Makefiles explique (mecanisme `MAKEFILE_LIST`/`vpath`/regles generiques de `common/mk/common.mk`). Creation de `CLAUDE.md` a la racine du repo (contexte, regle "guider pas coder a la place de l'utilisateur", structure, commandes de build, pieges F103->F303 recurrents, protocole fiche de suivi). Demarrage de `tp03_premier-projet` (chapitre "Entrainez-vous en creant un projet", Partie 1) : les ressources telechargees du cours (`librairie.lib` + `functions.h` avec prototypes vides) ont ete diagnostiquees comme **incompatibles avec notre toolchain** - `librairie.lib` est une archive `ar` valide mais ses objets internes sont compiles avec ARM Compiler 5 (`armcc`, Keil MDK-ARM/µVision), un format non linkable par `arm-none-eabi-gcc`/GNU ld (confirme via `file`/`ar t`/`xxd`, chaine `Component: ARM Compiler 5.06` visible dans le binaire). Decision utilisateur : reproduire l'esprit du TP (multi-fichiers) avec un `functions.c` maison plutot que sauter le chapitre ou tenter de decompiler le `.lib`. TARGET du Makefile corrige, `functions.c` pas encore ecrit (`make flash` echoue actuellement avec `No rule to make target 'build/functions.o'` - normal, fichier source manquant). |
 | 2026-09-07 | Reprise de session : `functions.c` de `tp03_premier-projet` toujours pas ecrit (bloquant identique a la pause precedente, pas retraite cette session). Lecture de la Partie 2 du cours ("Comprenez l'execution d'un programme") - 3 chapitres theoriques resumes dans la nouvelle section "Notes de cours" ci-dessous : Introduction (composants processeur, familles microprocesseur/DSP/microcontroleur/FPGA), Architecture programmable ARM (Harvard, 17 registres, RISC, load/store LDR/STR, flags xPSR, ARMv7 vs v8), Memoire dans les architectures ARM (alignement 32 bits, little-endian, 5 modes d'adressage, pool litteral). Aucun code de TP modifie cette session - uniquement de la prise de notes de cours, Partie 2 etant theorique/generique (pas de specificite F103 vs F303). |
 | 2026-09-08 | Suite et fin de la lecture de la Partie 2 : 3 derniers chapitres resumes dans "Notes de cours" - Procedures et pile systeme (BL/LR/BX LR, PUSH/POP, convention R0-R3, lien fait avec `_Min_Stack_Size = 0x400` deja present dans notre linker script), Exceptions et interruptions (IVT, empilage automatique, NVIC ISER/IP, lien fait avec le mecanisme `.weak`/`Default_Handler` deja utilise dans `vendor/startup/startup_stm32f303x8.s`), Compilation C/assembleur (chaine Keil mise en correspondance avec notre toolchain GNU - `.map`/`.elf`/`.ld` deja produits par `common.mk` - et piege note sur `__asm{}` Keil vs `asm volatile()` GCC). Partie 2 quasi terminee (reste le quiz recapitulatif). `functions.c` de `tp03_premier-projet` toujours pas ecrit - reste le blocage principal cote pratique. |
+| 2026-09-09 | Debut de la Partie 3 ("Programmez votre microcontroleur") : 3 chapitres lus et resumes dans "Notes de cours" - Specificites d'une architecture microcontroleur (peripheriques types : GPIO/timers/watchdog/capture-compare/ADC/PWM/bus, chiffres F103 a comparer au F303K8), Manipulez les registres et les masques (technique bit-a-bit generique, deja appliquee dans tous nos TP), Configurez les ports d'entree/sortie (**pas encore code, prevu demain**). Pour ce dernier, analyse d'adaptation F103->F303 complete preparee : `IDR`/`ODR`/`BSRR`/`BRR` transposables tels quels (verifie dans le CMSIS), `CRL`/`CRH` -> `MODER`/`OTYPER`/`PUPDR` (deja fait sur `tp02`), et surtout le bouton USER (PC13 sur F103) n'a pas d'equivalent sur le Nucleo-32 - deux options presentees (floating + pull externe comme le cours, ou `PUPDR` interne, registre qui n'existe pas sur F103). `tp04-gpio` sera cree demain par l'utilisateur via `template-tp`. `functions.c` de `tp03` toujours pas ecrit. |
 
 ## Procedures d'installation / reprise
 
@@ -457,6 +458,141 @@ extended asm) ou `__asm__(...)`. A garder en tete si on veut un jour
 inserer de l'assembleur inline dans un TP - ne pas copier `__asm { }` du
 cours tel quel, ca ne compilera pas avec `arm-none-eabi-gcc`.
 
+### Partie 3 - Comprenez les specificites d'une architecture microcontroleur
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4633171-comprenez-les-specificites-d-une-architecture-microcontroleur)
+
+Debut de la Partie 3 (theorie + TP materiel, contrairement a la Partie 2
+purement theorique).
+
+**Ce qui distingue un microcontroleur d'un microprocesseur** : systeme
+embarque autonome, consommation minimisee, peripheriques integres pour
+interagir directement avec le monde physique (pas besoin d'OS).
+
+**Composants integres :**
+- **GPIO** : "la partie la plus passive et la moins intelligente" mais le
+  point de connexion essentiel avec l'exterieur (tout/rien : eclairage,
+  vanne, bouton). Le nombre de broches et le boitier (LQFP, VFQFPN,
+  LFBGA...) determinent les capacites d'interfacage - a verifier avant de
+  commencer un projet (nous l'avons fait des le debut :
+  `docs/correspondance-f103-f303.md` §2, LQFP64 vs LQFP32).
+- **Timers/compteurs** : comptent des changements d'etat ; relies a une
+  horloge fixe, ils mesurent le temps. Debordement -> interruption,
+  registre de rechargement programmable.
+- **Watchdog** : surveille la reactivite du logiciel, declenche une
+  interruption si le programme ne le "nourrit" pas periodiquement.
+- **Capture/Compare** : capture la valeur d'un timer a un evenement
+  (mesurer la duree d'appui d'un bouton) ou compare a un seuil.
+- **ADC** : tension -> valeur numerique, via multiplexeur (plusieurs
+  canaux), caracterise par sa resolution.
+- **PWM** : signal carre a rapport cyclique variable, alternative
+  economique a un vrai DAC.
+- **Bus de communication** : UART/USART, I2C, SPI, CAN, Ethernet, USB.
+
+**Chiffres du cours pour le STM32F103** (a comparer avec notre F303K8,
+cf. `docs/correspondance-f103-f303.md`) : jusqu'a 80 GPIO (LQFP100 - le
+RB du cours en LQFP64 en a moins), 4 timers generaux, 2 watchdogs, 2
+canaux ADC, plusieurs interfaces de communication.
+
+**3 documents de reference a toujours avoir sous la main** (le cours
+insiste dessus, on applique deja ce principe) :
+- **Datasheet** : correspondance broches <-> peripheriques
+- **Reference manual** : description detaillee des peripheriques et
+  registres (RM0008 pour F103, **RM0316 pour notre F303**)
+- **Programming manual** : architecture du coeur, mecanisme d'interruption
+
+### Partie 3 - Manipulez les registres et les masques
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4633446-manipulez-les-registres-et-les-masques)
+
+Chapitre 100% generique (independant de la carte) - technique de
+manipulation de bits en C, deja appliquee dans tous nos TP.
+
+**Operateurs bit-a-bit vs logiques** : `&`/`|`/`^`/`~` (bit-a-bit)
+different de `&&`/`||`/`!` (logique, traite l'operande comme un booleen).
+
+**Mettre un bit a 1** : OR avec un masque n'ayant que ce bit a 1 :
+```c
+init |= (1 << 4);
+```
+**Mettre un bit a 0** : AND avec le masque INVERSE :
+```c
+init &= ~(1 << 4);
+```
+**Tester un bit** : AND puis comparaison :
+```c
+if (value & (1 << 5)) { /* bit 5 a 1 */ }
+```
+**Limite importante soulignee par le cours** : impossible de mettre des
+bits a 0 ET a 1 en une seule operation - toujours 2 operations separees
+(un `&= ~(...)` puis un `|= (...)`, jamais fusionnables).
+
+**Bonne pratique** : toujours construire le masque avec `(1 << position)`
+plutot qu'une valeur hexadecimale calculee a la main - moins d'erreurs,
+plus lisible. C'est le style deja utilise partout dans nos TP.
+
+### Partie 3 - Configurez les ports d'entree/sortie (GPIO)
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4633881-configurez-les-ports-d-entree-sortie)
+
+**Pas encore code par l'utilisateur - a faire prochainement.** Voici
+l'analyse d'adaptation F103RB -> F303K8 pour preparer ce TP.
+
+**Ce que fait l'exemple du cours** : LED sur PA5 (sortie push-pull) +
+bouton USER sur PC13 (entree floating), avec la structure `GPIO_TypeDef`
+du F103 : `CRL, CRH, IDR, ODR, BSRR, BRR, LCKR` (7 registres). Boucle de
+detection de changement d'etat du bouton (comparaison avec l'etat
+precedent) qui toggle la LED a chaque appui/relachement.
+
+**Registres GPIO F303K8 (verifies dans `vendor/cmsis/device/stm32f303x8.h`)** :
+```c
+MODER, OTYPER, OSPEEDR, PUPDR, IDR, ODR, BSRR, LCKR, AFR[2], BRR
+```
+10 registres au lieu de 7 - MODER/OTYPER/OSPEEDR/PUPDR remplacent
+CRL/CRH (deja rencontre sur `tp02-premier-blink`), et **AFR[2]** est
+nouveau (fonctions alternatives, absent du F103 qui utilise `AFIO_MAPR`
+a la place - cf. `docs/correspondance-f103-f303.md` §4).
+
+**Bonne nouvelle deja verifiee** : `IDR`, `ODR`, `BSRR` et `BRR` existent
+**avec le meme nom et le meme role** sur le F303 - le code de lecture
+(`GPIOC->IDR & (1 << 13)`) et d'ecriture (`GPIOA->ODR ^= (1 << 5)`, ou
+via `BSRR`/`BRR`) du cours se transpose donc **sans changement de
+logique**, seuls le port/la broche changent.
+
+**Ce qui doit vraiment changer :**
+1. **Horloge** : `RCC->APB2ENR` (`IOPAEN`/`IOPCEN`) -> `RCC->AHBENR`
+   (`GPIOxEN`) - piege deja rencontre sur `tp02`.
+2. **Mode de la LED (sortie push-pull)** : remplacer la config CRL/CRH
+   4 bits par `MODER` (2 bits, valeur `01` = sortie) - deja fait sur
+   `tp02-premier-blink` pour PB3 (LD3), reutilisable telle quelle.
+3. **Le bouton USER n'a pas d'equivalent sur le Nucleo-32.** PC13
+   n'existe meme pas sur le connecteur du F303K8 (cf.
+   `docs/correspondance-f103-f303.md` §2). Il faudra :
+   - Choisir une broche libre du connecteur Arduino Nano (ex. **PA0** ou
+     **PB0**, cf. `docs/organisation-tp.md` §2) et y cabler un bouton
+     externe sur la breadboard.
+   - Configurer cette broche en entree (`MODER = 00`, valeur par defaut).
+   - **Difference d'approche pour le pull-up/pull-down** : le F103 n'a
+     pas de registre dedie - le mode "pull-up/pull-down" de CRL/CRH
+     reutilise le bit `ODR` correspondant pour choisir la direction (une
+     astuce specifique au F103). Le F303 a un **vrai registre `PUPDR`**
+     (2 bits/broche : `00`=aucun, `01`=pull-up, `10`=pull-down) -
+     plus propre, pas besoin du detour par `ODR`. Deux options
+     equivalentes au resultat du cours :
+     - Reproduire l'entree "floating" du cours (`PUPDR = 00`) + une
+       resistance de tirage **externe** sur la breadboard (comme le
+       bouton B1 du Nucleo-64 original, qui a son pull-up cable sur la
+       carte).
+     - Ou, plus idiomatique F303 : `PUPDR = 01` (pull-up interne) et
+       cabler juste le bouton vers la masse, sans resistance externe.
+4. **Vitesse de sortie (`OSPEEDR`)** : le cours mentionne 3 vitesses
+   possibles sur le F103 (dans les bits CRL/CRH), recommandant la plus
+   basse pour la plupart des cas. Sur F303, c'est le registre separe
+   `OSPEEDR` (2 bits/broche) - non configure explicitement dans nos TP
+   jusqu'ici (valeur par defaut = vitesse basse au reset, ce qui
+   correspond deja a la recommandation du cours).
+
+**Non concerne par ce TP mais a garder en tete** : `AFR[2]` ne sera
+utile que lorsque `MODER` = `10` (fonction alternative) - pas necessaire
+ici puisque LED et bouton restent en GPIO pur (`MODER` = `01`/`00`).
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -471,7 +607,13 @@ cours tel quel, ca ne compilera pas avec `arm-none-eabi-gcc`.
       `make flash`. Decider si `librairie.lib` (inutilisable) est
       supprime ou garde de cote.
 - [ ] Terminer la Partie 2 : quiz de fin de partie ("Les grands principes
-      de l'execution")
+      de l'execution") - pas encore fait, la lecture est passee directement
+      en Partie 3
+- [ ] Ecrire le TP GPIO (Partie 3, "Configurez les ports d'entree/sortie") :
+      analyse d'adaptation prete dans "Notes de cours" ci-dessus - LED sur
+      PB3 (deja fait sur `tp02`), bouton externe sur breadboard (choisir la
+      broche, decider floating+pull externe vs `PUPDR` interne), passage
+      CRL/CRH -> MODER/OTYPER/PUPDR, horloge sur `AHBENR`
 - [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
       interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
       `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
