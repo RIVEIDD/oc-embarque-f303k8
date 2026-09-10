@@ -89,6 +89,12 @@ concretement pendant les TP :
 
 - **Debut de session** : la lire pour se resynchroniser sur l'etat reel
   avant de proposer quoi que ce soit.
+- **Pendant la session** : consigner **chaque commande shell** utilisee
+  pour un TP (scaffold, build, flash, git...) dans la section "Journal
+  des commandes (par TP)", au fil de l'eau - pas seulement en resume a la
+  fin. Si Claude execute une commande via son propre outil Bash, ou si
+  l'utilisateur rapporte une commande qu'il a lancee lui-meme, elle va
+  dans le journal.
 - **Fin de session** (l'utilisateur dit qu'il arrete) : mettre a jour le
   tableau "Historique / Etat d'avancement" (ligne datee) et "Prochaines
   etapes", puis **committer ce fichier seul, dans un commit separe** du
