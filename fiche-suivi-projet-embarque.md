@@ -34,6 +34,51 @@ Voir aussi :
 | 2026-09-07 | Reprise de session : `functions.c` de `tp03_premier-projet` toujours pas ecrit (bloquant identique a la pause precedente, pas retraite cette session). Lecture de la Partie 2 du cours ("Comprenez l'execution d'un programme") - 3 chapitres theoriques resumes dans la nouvelle section "Notes de cours" ci-dessous : Introduction (composants processeur, familles microprocesseur/DSP/microcontroleur/FPGA), Architecture programmable ARM (Harvard, 17 registres, RISC, load/store LDR/STR, flags xPSR, ARMv7 vs v8), Memoire dans les architectures ARM (alignement 32 bits, little-endian, 5 modes d'adressage, pool litteral). Aucun code de TP modifie cette session - uniquement de la prise de notes de cours, Partie 2 etant theorique/generique (pas de specificite F103 vs F303). |
 | 2026-09-08 | Suite et fin de la lecture de la Partie 2 : 3 derniers chapitres resumes dans "Notes de cours" - Procedures et pile systeme (BL/LR/BX LR, PUSH/POP, convention R0-R3, lien fait avec `_Min_Stack_Size = 0x400` deja present dans notre linker script), Exceptions et interruptions (IVT, empilage automatique, NVIC ISER/IP, lien fait avec le mecanisme `.weak`/`Default_Handler` deja utilise dans `vendor/startup/startup_stm32f303x8.s`), Compilation C/assembleur (chaine Keil mise en correspondance avec notre toolchain GNU - `.map`/`.elf`/`.ld` deja produits par `common.mk` - et piege note sur `__asm{}` Keil vs `asm volatile()` GCC). Partie 2 quasi terminee (reste le quiz recapitulatif). `functions.c` de `tp03_premier-projet` toujours pas ecrit - reste le blocage principal cote pratique. |
 | 2026-09-09 | Debut de la Partie 3 ("Programmez votre microcontroleur") : 3 chapitres lus et resumes dans "Notes de cours" - Specificites d'une architecture microcontroleur (peripheriques types : GPIO/timers/watchdog/capture-compare/ADC/PWM/bus, chiffres F103 a comparer au F303K8), Manipulez les registres et les masques (technique bit-a-bit generique, deja appliquee dans tous nos TP), Configurez les ports d'entree/sortie (**pas encore code, prevu demain**). Pour ce dernier, analyse d'adaptation F103->F303 complete preparee : `IDR`/`ODR`/`BSRR`/`BRR` transposables tels quels (verifie dans le CMSIS), `CRL`/`CRH` -> `MODER`/`OTYPER`/`PUPDR` (deja fait sur `tp02`), et surtout le bouton USER (PC13 sur F103) n'a pas d'equivalent sur le Nucleo-32 - deux options presentees (floating + pull externe comme le cours, ou `PUPDR` interne, registre qui n'existe pas sur F103). `tp04-gpio` sera cree demain par l'utilisateur via `template-tp`. `functions.c` de `tp03` toujours pas ecrit. |
+| 2026-09-10 | Nouvelle regle adoptee : chaque commande shell d'un TP est desormais consignee dans la section "Journal des commandes (par TP)" au fil de l'eau (pas seulement resumee en fin de session) - codifie aussi dans `CLAUDE.md`. `tp04-gpio` avance : LED PB3 en sortie (reprise de la logique `tp02`), remplacement du bouton USER (absent sur Nucleo-32) par le bouton SW d'un joystick externe sur breadboard (cablage 3V3 plutot que 5V pour rester simple sur la tolerance des GPIO, SW sur une broche libre avec `PUPDR` interne en pull-up puisque le module n'a pas de pull-up integre) ; plusieurs erreurs de code corrigees en autonomie (instruction hors fonction, mauvais port RCC active - GPIOA/GPIOC au lieu de GPIOB pour la LED -, typo `PIOA` au lieu de `GPIOA`). Demarrage de `tp05-timer` (Partie 3 ch.4, timers) : bug "TIM2->CNT reste a 0x0" investigue et resolu - fausse alerte, `PSC=7199`/`ARR=9999` sont les valeurs de l'exemple du cours calculees pour 72 MHz, alors que la carte tourne encore a 8 MHz (~9x plus lent que prevu, tick toutes les 900µs) ; le compteur avance bien, juste lu trop tot / a verifier avec `continue` + `Ctrl-C` plutot qu'un `print` immediat. Chapitre "Gerer le temps avec les timers" lu et resume dans "Notes de cours" (formule de periode, registres CR1/PSC/ARR/CNT/SR, detection UIF par polling). Aucun commit de code TP effectue cette session (uniquement discussions/corrections en cours d'ecriture). |
+
+## Journal des commandes (par TP)
+
+Chaque commande shell utilisee pendant un TP, dans l'ordre, pour pouvoir
+reproduire ou deboguer une session sans avoir a la reconstituer de
+memoire. Mise a jour au fil de l'eau (pas seulement en fin de session).
+
+### tp04-gpio
+```sh
+cp -r template-tp tp04-gpio
+```
+TARGET du Makefile pas encore renomme (toujours `tpXX-nom-du-tp`).
+
+### tp05-timer
+```sh
+cp -r template-tp tp05-timer   # inferee depuis la structure du dossier (build/, inc/, src/,
+                                 # Makefile identique au gabarit) - pas rapportee explicitement
+                                 # au moment de l'execution, a confirmer si besoin
+make                             # build reussi (voir build/*.elf/*.bin/*.hex, TARGET pas renomme)
+make debug                      # session GDB pour investiguer TIM2->CNT
+```
+Commandes GDB utilisees pendant la session de debug de `TIM2->CNT` (reste
+a 0x0 apparent, cause : PSC/ARR calcules pour 72 MHz alors que la carte
+tourne a 8 MHz - cf. "Notes de cours" > Partie 3 > Gerer le temps avec
+les timers) :
+```
+(gdb) print/x TIM2->CNT
+(gdb) display/x TIM2->CNT
+(gdb) continue
+```
+Puis, apres deconnexion physique de la carte (USB debranche) pendant que
+GDB/OpenOCD tournaient encore, sortie propre de la session :
+```
+(gdb) quit
+```
+(ou, si GDB ne repondait plus : `Ctrl-C` puis `quit`, et en dernier
+recours depuis un autre terminal : `pkill openocd`).
+
+### Reference generale (hors TP specifique)
+Commandes Git discutees cette session, reutilisables sur n'importe quel TP :
+```sh
+git add nom-du-dossier/                       # stage recursivement tout un dossier
+git log origin/master..HEAD --oneline         # liste les commits locaux pas encore pushes
+```
 
 ## Procedures d'installation / reprise
 
@@ -593,6 +638,52 @@ logique**, seuls le port/la broche changent.
 utile que lorsque `MODER` = `10` (fonction alternative) - pas necessaire
 ici puisque LED et bouton restent en GPIO pur (`MODER` = `01`/`00`).
 
+### Partie 3 - Gerer le temps avec les timers
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4634846-gerer-le-temps-avec-les-timers)
+
+**Registres cles** : `CR1` (bit 0 = **CEN**, demarre/arrete le compteur),
+`PSC` (prescaler, divise l'horloge par `PSC+1`), `ARR` (auto-reload,
+seuil de debordement), `CNT` (valeur courante), `SR` (bit 0 = **UIF**,
+flag de debordement/update).
+
+**Formule de periode** :
+```
+T_timer = T_horloge * (PSC+1) * (ARR+1)
+```
+Exemple du cours (a 72 MHz, pour 1 seconde) : `PSC=7199`, `ARR=9999` ->
+`(1/72e6) * 7200 * 10000 = 1.0 s`. **C'est exactement les valeurs deja
+utilisees dans `tp05-timer`** - d'ou le debug de cette session : notre
+carte tourne encore a **8 MHz** (HSI, pas de PLL configuree, cf. notes
+Partie 2), donc avec ces memes PSC/ARR la periode reelle actuelle est
+`(1/8e6) * 7200 * 10000 ≈ 9 s`, pas 1 s. `CNT` incremente bien, mais tous
+les `7200/8MHz = 900 µs` seulement - d'ou l'impression de "reste a 0" si
+on le lit trop tot apres le demarrage (cf. session de debug precedente).
+Pour un vrai "1 seconde" sur cette carte en l'etat, il faudrait soit
+adapter `PSC`/`ARR` a 8 MHz (`PSC=799, ARR=9999` par exemple, a verifier),
+soit configurer le PLL a 72 MHz (futur chapitre horloge).
+
+**Detection de debordement (polling), code du cours (F103, transposable
+tel quel a l'exception du nom du bit RCC deja vu pour l'activation
+horloge)** :
+```c
+if (TIM2->SR & TIM_SR_UIF) {
+    TIM2->SR = TIM2->SR & ~TIM_SR_UIF;   // toujours effacer le flag
+    GPIOA->ODR = GPIOA->ODR ^ (1 << 5);
+}
+```
+Le flag **doit** etre efface manuellement (ecriture a 0), sinon il reste
+positionne et signale un debordement en continu meme si un seul a eu
+lieu. `TIM_SR_UIF` (bit 0 de `SR`) est confirme identique sur le F303
+(verifie dans `stm32f303x8.h`) - transposable tel quel.
+
+**Horloge** : SYSCLK par defaut a 72 MHz sur le F103 du cours (PLL deja
+configuree par defaut sur cette carte - **pas le cas sur notre F303K8**,
+cf. remarque ci-dessus), qui alimente ensuite les prescalers AHB/APB1/APB2
+distribues aux peripheriques. Bonne pratique soulignee par le cours :
+desactiver les horloges des peripheriques non utilises pour economiser
+l'energie (deja applique implicitement : on n'active que les `RCC_..EN`
+strictement necessaires dans chaque TP).
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -609,14 +700,22 @@ ici puisque LED et bouton restent en GPIO pur (`MODER` = `01`/`00`).
 - [ ] Terminer la Partie 2 : quiz de fin de partie ("Les grands principes
       de l'execution") - pas encore fait, la lecture est passee directement
       en Partie 3
-- [ ] Ecrire le TP GPIO (Partie 3, "Configurez les ports d'entree/sortie") :
-      analyse d'adaptation prete dans "Notes de cours" ci-dessus - LED sur
-      PB3 (deja fait sur `tp02`), bouton externe sur breadboard (choisir la
-      broche, decider floating+pull externe vs `PUPDR` interne), passage
-      CRL/CRH -> MODER/OTYPER/PUPDR, horloge sur `AHBENR`
-- [ ] Poursuivre le cours en autonomie guidee (Partie 3 : timers,
-      interruptions) -> nouveaux `tpNN-...` via `template-tp/`, cf.
-      `docs/correspondance-f103-f303.md` et `docs/organisation-tp.md`
+- [ ] Finir `tp04-gpio` : config LED (PB3) et bouton joystick (PA0,
+      `PUPDR` pull-up) en place, mais la logique de lecture/comparaison
+      d'etat (le `while(1)` qui detecte l'appui et toggle la LED) reste a
+      ecrire. Renommer aussi `TARGET` dans le Makefile (encore
+      `tpXX-nom-du-tp`).
+- [ ] `tp05-timer` : ajuster `PSC`/`ARR` pour un vrai 1 seconde a
+      l'horloge actuelle (8 MHz) - ou attendre la configuration du PLL a
+      72 MHz. Ajouter la logique de detection `UIF` + toggle LED
+      (actuellement seule la config CR1/PSC/ARR est en place, pas encore
+      de polling dans la boucle). Renommer `TARGET` dans le Makefile.
+- [ ] Continuer la Partie 3 : "Gerez vos interruptions" (version timer,
+      complementaire au chapitre generique NVIC deja vu en Partie 2),
+      puis "Entrainez-vous en allumant une LED de maniere aleatoire" et
+      le quiz de fin de partie
+- [ ] Terminer le quiz de la Partie 2 (toujours en attente depuis le
+      2026-09-08)
 - [ ] Une fois plusieurs TP reels faits, reproposer la Skill Claude
       reutilisable (mapping + check-list + gabarit) - reportee le
       2026-09-02 a la demande de l'utilisateur
