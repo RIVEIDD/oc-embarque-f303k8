@@ -14,6 +14,7 @@ int main(void)
     RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
     TIM2->ARR = 9999;
     TIM2->PSC = 7199;
+    
     TIM2->CR1 = TIM2->CR1 | ( 1 << 0);
     while (1) {
         /* TODO */
