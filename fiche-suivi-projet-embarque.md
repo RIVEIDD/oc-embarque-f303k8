@@ -35,6 +35,7 @@ Voir aussi :
 | 2026-09-08 | Suite et fin de la lecture de la Partie 2 : 3 derniers chapitres resumes dans "Notes de cours" - Procedures et pile systeme (BL/LR/BX LR, PUSH/POP, convention R0-R3, lien fait avec `_Min_Stack_Size = 0x400` deja present dans notre linker script), Exceptions et interruptions (IVT, empilage automatique, NVIC ISER/IP, lien fait avec le mecanisme `.weak`/`Default_Handler` deja utilise dans `vendor/startup/startup_stm32f303x8.s`), Compilation C/assembleur (chaine Keil mise en correspondance avec notre toolchain GNU - `.map`/`.elf`/`.ld` deja produits par `common.mk` - et piege note sur `__asm{}` Keil vs `asm volatile()` GCC). Partie 2 quasi terminee (reste le quiz recapitulatif). `functions.c` de `tp03_premier-projet` toujours pas ecrit - reste le blocage principal cote pratique. |
 | 2026-09-09 | Debut de la Partie 3 ("Programmez votre microcontroleur") : 3 chapitres lus et resumes dans "Notes de cours" - Specificites d'une architecture microcontroleur (peripheriques types : GPIO/timers/watchdog/capture-compare/ADC/PWM/bus, chiffres F103 a comparer au F303K8), Manipulez les registres et les masques (technique bit-a-bit generique, deja appliquee dans tous nos TP), Configurez les ports d'entree/sortie (**pas encore code, prevu demain**). Pour ce dernier, analyse d'adaptation F103->F303 complete preparee : `IDR`/`ODR`/`BSRR`/`BRR` transposables tels quels (verifie dans le CMSIS), `CRL`/`CRH` -> `MODER`/`OTYPER`/`PUPDR` (deja fait sur `tp02`), et surtout le bouton USER (PC13 sur F103) n'a pas d'equivalent sur le Nucleo-32 - deux options presentees (floating + pull externe comme le cours, ou `PUPDR` interne, registre qui n'existe pas sur F103). `tp04-gpio` sera cree demain par l'utilisateur via `template-tp`. `functions.c` de `tp03` toujours pas ecrit. |
 | 2026-09-10 | Nouvelle regle adoptee : chaque commande shell d'un TP est desormais consignee dans la section "Journal des commandes (par TP)" au fil de l'eau (pas seulement resumee en fin de session) - codifie aussi dans `CLAUDE.md`. `tp04-gpio` avance : LED PB3 en sortie (reprise de la logique `tp02`), remplacement du bouton USER (absent sur Nucleo-32) par le bouton SW d'un joystick externe sur breadboard (cablage 3V3 plutot que 5V pour rester simple sur la tolerance des GPIO, SW sur une broche libre avec `PUPDR` interne en pull-up puisque le module n'a pas de pull-up integre) ; plusieurs erreurs de code corrigees en autonomie (instruction hors fonction, mauvais port RCC active - GPIOA/GPIOC au lieu de GPIOB pour la LED -, typo `PIOA` au lieu de `GPIOA`). Demarrage de `tp05-timer` (Partie 3 ch.4, timers) : bug "TIM2->CNT reste a 0x0" investigue et resolu - fausse alerte, `PSC=7199`/`ARR=9999` sont les valeurs de l'exemple du cours calculees pour 72 MHz, alors que la carte tourne encore a 8 MHz (~9x plus lent que prevu, tick toutes les 900µs) ; le compteur avance bien, juste lu trop tot / a verifier avec `continue` + `Ctrl-C` plutot qu'un `print` immediat. Chapitre "Gerer le temps avec les timers" lu et resume dans "Notes de cours" (formule de periode, registres CR1/PSC/ARR/CNT/SR, detection UIF par polling). Aucun commit de code TP effectue cette session (uniquement discussions/corrections en cours d'ecriture). |
+| 2026-09-16 | Chapitre "Gerez vos interruptions" (application timer, Partie 3 ch.5) lu et resume : DIER/UIE, IRQ28=TIM2 verifie identique F103/F303, piege `NVIC_ISER_SETENA_28` absente du CMSIS F303 (remplacee par `(1<<28)`), alternative `NVIC_EnableIRQ`/`NVIC_SetPriority` decouverte dans `core_cm4.h`. `tp06-interrupt` ecrit par l'utilisateur en autonomie ; 2 bugs identifies et corriges par l'utilisateur suite a revue : handler togglant `GPIOA` (PA5, reste du code du cours) au lieu de `GPIOB` (PB3, la broche reellement configuree), et macro inexistante `TIM1_CR1_CEN` au lieu de `TIM_CR1_CEN` - build final valide (868 B Flash). **Exception ponctuelle** (comme `tp01-hello-uart`) : a la demande explicite de l'utilisateur, Claude a redige integralement le corrige du chapitre suivant ("LED aleatoire", Partie 3 ch.6) dans un nouveau dossier `correction/`, pour que l'utilisateur puisse verifier son propre travail plus tard sans que ca remplace l'exercice. Adapte depuis le corrige officiel du cours (`main_v1_correction.c` telecharge depuis static.oc-static.com) : LED PA5->PB3, PC13/TIM4 retires (vestiges non utilises dans cette version + absents du F303K8), PSC recalcule pour l'horloge reelle actuelle a 8 MHz (tick exact de 1 ms, simplifie le `10*rand()` du cours en `rand()` direct) plutot que de supposer les 72 MHz du F103. Build reussi (1140 B Flash). |
 
 ## Journal des commandes (par TP)
 
@@ -72,6 +73,18 @@ GDB/OpenOCD tournaient encore, sortie propre de la session :
 ```
 (ou, si GDB ne repondait plus : `Ctrl-C` puis `quit`, et en dernier
 recours depuis un autre terminal : `pkill openocd`).
+
+### correction
+```sh
+cp -r template-tp correction
+```
+Puis `TARGET = correction` dans le Makefile, et `src/main.c` redige
+entierement par Claude (voir "Pieges rencontres" et l'historique dates
+pour le detail) :
+```sh
+make
+```
+Build reussi (1140 B Flash, aucun warning sur le code propre).
 
 ### Reference generale (hors TP specifique)
 Commandes Git discutees cette session, reutilisables sur n'importe quel TP :
@@ -257,6 +270,16 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
   l'incompatibilite. Pas une erreur de manipulation, juste un ecart
   d'outillage a anticiper sur les prochains chapitres avec ressources
   telechargeables.
+
+- **Corrige officiel du cours (`main_v1_correction.c`, "LED aleatoire")** :
+  telecharge depuis `static.oc-static.com` pour la traduction F303K8
+  (dossier `correction/`). Contenait des elements vestigiaux jamais
+  utilises dans cette version "v1" (config `PC13`, activation de
+  `TIM4`) - laisses de cote dans la version F303K8 (PC13 n'existe pas
+  sur le connecteur Nucleo-32, TIM4 n'existe pas du tout sur ce chip).
+  A retenir si on regarde un corrige officiel : verifier qu'un
+  peripherique configure est vraiment *utilise* dans le code avant de
+  s'embeter a l'adapter.
 
 ## Notes de cours (parties theoriques)
 
@@ -684,6 +707,66 @@ desactiver les horloges des peripheriques non utilises pour economiser
 l'energie (deja applique implicitement : on n'active que les `RCC_..EN`
 strictement necessaires dans chaque TP).
 
+### Partie 3 - Gerez vos interruptions (application timer)
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4635136-gerez-vos-interruptions)
+
+Application concrete du chapitre generique NVIC deja vu en Partie 2 -
+meme LED-toggle que le polling `TIM2->SR & TIM_SR_UIF` de `tp05-timer`,
+mais declenchee par interruption plutot que verifiee en boucle.
+
+**1. Autoriser le timer a generer l'interruption (`DIER`)** :
+```c
+TIM2->DIER |= TIM_DIER_UIE;
+```
+**2. Activer l'IRQ correspondante dans le NVIC.** TIM2 = **IRQ numero 28**
+- verifie identique sur le F303 (`TIM2_IRQn = 28` dans
+`stm32f303x8.h`, comme sur le F103) :
+```c
+NVIC->ISER[0] |= (1 << 28);
+```
+**Piege verifie** : le cours utilise la macro `NVIC_ISER_SETENA_28`, qui
+**n'existe pas** dans notre CMSIS (verifie par `grep`, absente de
+`core_cm4.h`/`stm32f303x8.h`) - remplacer par le decalage de bit brut
+`(1 << 28)`, mecanisme strictement identique.
+
+**3. Regler la priorite** - transpose telle quelle, structure identique
+verifiee (`NVIC->IP` est un tableau de 240 `uint8_t`, un octet par IRQ,
+meme layout sur F103 et F303) :
+```c
+NVIC->IP[28] |= (7 << 4);
+```
+
+**Alternative plus idiomatique disponible sur le F303** : notre
+`vendor/cmsis/core/core_cm4.h` fournit des fonctions CMSIS standard qui
+evitent de calculer l'index/le bit a la main :
+```c
+NVIC_EnableIRQ(TIM2_IRQn);
+NVIC_SetPriority(TIM2_IRQn, priorite);
+```
+Ces fonctions prennent directement l'enum `TIM2_IRQn` et gerent
+elles-memes l'indexation dans `ISER`/`IP` - moins sujettes a une erreur
+d'index pour les IRQ >= 32 (ou `ISER[0]` ne suffit plus). Les deux
+approches sont equivalentes en pratique pour TIM2 (IRQ 28 < 32).
+
+**4. Le gestionnaire lui-meme** :
+```c
+void TIM2_IRQHandler(void) {
+    TIM2->SR &= ~TIM_SR_UIF;
+    GPIOA->ODR ^= (1 << 5);
+}
+```
+Nom impose par la table des vecteurs (deja `.weak` dans notre
+`startup_stm32f303x8.s`, cf. notes Partie 2 sur les exceptions). **Le
+flag `UIF` doit etre efface a l'interieur du handler** - sinon
+l'interruption re-declenche immediatement en boucle des la sortie du
+handler (meme regle que pour le polling, mais consequence plus grave ici
+: le programme reste bloque a re-servir cette interruption au lieu
+d'executer `main()`).
+
+**Interruption vs polling** : plus reactif (traite au moment ou
+l'evenement survient, pas apres avoir fini le tour de boucle), et
+n'occupe pas le CPU a attendre activement.
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -710,10 +793,14 @@ strictement necessaires dans chaque TP).
       72 MHz. Ajouter la logique de detection `UIF` + toggle LED
       (actuellement seule la config CR1/PSC/ARR est en place, pas encore
       de polling dans la boucle). Renommer `TARGET` dans le Makefile.
-- [ ] Continuer la Partie 3 : "Gerez vos interruptions" (version timer,
-      complementaire au chapitre generique NVIC deja vu en Partie 2),
-      puis "Entrainez-vous en allumant une LED de maniere aleatoire" et
-      le quiz de fin de partie
+- [ ] Tester `tp06-interrupt` sur la carte reelle (build valide, pas
+      encore flashe/verifie physiquement)
+- [ ] Ecrire soi-meme le TP "LED aleatoire" (Partie 3 ch.6), en
+      s'appuyant sur `correction/` uniquement pour verifier apres coup
+      (pas avant). Puis tester `correction/` sur la carte reelle (build
+      valide, pas encore flashe).
+- [ ] Faire le quiz de fin de Partie 3 ("Microcontroleur et premiers
+      peripheriques")
 - [ ] Terminer le quiz de la Partie 2 (toujours en attente depuis le
       2026-09-08)
 - [ ] Une fois plusieurs TP reels faits, reproposer la Skill Claude
