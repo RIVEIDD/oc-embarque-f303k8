@@ -36,6 +36,7 @@ Voir aussi :
 | 2026-09-09 | Debut de la Partie 3 ("Programmez votre microcontroleur") : 3 chapitres lus et resumes dans "Notes de cours" - Specificites d'une architecture microcontroleur (peripheriques types : GPIO/timers/watchdog/capture-compare/ADC/PWM/bus, chiffres F103 a comparer au F303K8), Manipulez les registres et les masques (technique bit-a-bit generique, deja appliquee dans tous nos TP), Configurez les ports d'entree/sortie (**pas encore code, prevu demain**). Pour ce dernier, analyse d'adaptation F103->F303 complete preparee : `IDR`/`ODR`/`BSRR`/`BRR` transposables tels quels (verifie dans le CMSIS), `CRL`/`CRH` -> `MODER`/`OTYPER`/`PUPDR` (deja fait sur `tp02`), et surtout le bouton USER (PC13 sur F103) n'a pas d'equivalent sur le Nucleo-32 - deux options presentees (floating + pull externe comme le cours, ou `PUPDR` interne, registre qui n'existe pas sur F103). `tp04-gpio` sera cree demain par l'utilisateur via `template-tp`. `functions.c` de `tp03` toujours pas ecrit. |
 | 2026-09-10 | Nouvelle regle adoptee : chaque commande shell d'un TP est desormais consignee dans la section "Journal des commandes (par TP)" au fil de l'eau (pas seulement resumee en fin de session) - codifie aussi dans `CLAUDE.md`. `tp04-gpio` avance : LED PB3 en sortie (reprise de la logique `tp02`), remplacement du bouton USER (absent sur Nucleo-32) par le bouton SW d'un joystick externe sur breadboard (cablage 3V3 plutot que 5V pour rester simple sur la tolerance des GPIO, SW sur une broche libre avec `PUPDR` interne en pull-up puisque le module n'a pas de pull-up integre) ; plusieurs erreurs de code corrigees en autonomie (instruction hors fonction, mauvais port RCC active - GPIOA/GPIOC au lieu de GPIOB pour la LED -, typo `PIOA` au lieu de `GPIOA`). Demarrage de `tp05-timer` (Partie 3 ch.4, timers) : bug "TIM2->CNT reste a 0x0" investigue et resolu - fausse alerte, `PSC=7199`/`ARR=9999` sont les valeurs de l'exemple du cours calculees pour 72 MHz, alors que la carte tourne encore a 8 MHz (~9x plus lent que prevu, tick toutes les 900µs) ; le compteur avance bien, juste lu trop tot / a verifier avec `continue` + `Ctrl-C` plutot qu'un `print` immediat. Chapitre "Gerer le temps avec les timers" lu et resume dans "Notes de cours" (formule de periode, registres CR1/PSC/ARR/CNT/SR, detection UIF par polling). Aucun commit de code TP effectue cette session (uniquement discussions/corrections en cours d'ecriture). |
 | 2026-09-16 | Chapitre "Gerez vos interruptions" (application timer, Partie 3 ch.5) lu et resume : DIER/UIE, IRQ28=TIM2 verifie identique F103/F303, piege `NVIC_ISER_SETENA_28` absente du CMSIS F303 (remplacee par `(1<<28)`), alternative `NVIC_EnableIRQ`/`NVIC_SetPriority` decouverte dans `core_cm4.h`. `tp06-interrupt` ecrit par l'utilisateur en autonomie ; 2 bugs identifies et corriges par l'utilisateur suite a revue : handler togglant `GPIOA` (PA5, reste du code du cours) au lieu de `GPIOB` (PB3, la broche reellement configuree), et macro inexistante `TIM1_CR1_CEN` au lieu de `TIM_CR1_CEN` - build final valide (868 B Flash). **Exception ponctuelle** (comme `tp01-hello-uart`) : a la demande explicite de l'utilisateur, Claude a redige integralement le corrige du chapitre suivant ("LED aleatoire", Partie 3 ch.6) dans un nouveau dossier `correction/`, pour que l'utilisateur puisse verifier son propre travail plus tard sans que ca remplace l'exercice. Adapte depuis le corrige officiel du cours (`main_v1_correction.c` telecharge depuis static.oc-static.com) : LED PA5->PB3, PC13/TIM4 retires (vestiges non utilises dans cette version + absents du F303K8), PSC recalcule pour l'horloge reelle actuelle a 8 MHz (tick exact de 1 ms, simplifie le `10*rand()` du cours en `rand()` direct) plutot que de supposer les 72 MHz du F103. Build reussi (1140 B Flash). |
+| 2026-09-17 | `tp07_RandLEd` : l'utilisateur ecrit son propre TP "LED aleatoire" en autonomie (guidage Claude uniquement, `correction/` non consultee avant). Approche a un seul timer (TIM2, ARR alterne entre 300 et `rand()`) plutot que deux timers separes, plus ajout d'une interruption externe EXTI0/PA0 pour le bouton du joystick (SYSCFG_EXTICR, IMR, FTSR, NVIC IRQ 6 - nouveaute par rapport a `correction/`). Session de debug fournie riche en pieges generiques C (pas specifiques F103/F303, cf. "Pieges rencontres") : `stdbool.h` manquant, `~` au lieu de `!` pour toggler un booleen, appel de fonction avec mauvaise arite + `;` manquant, `RCC_APB2ENR_SYSCFGEN` ecrit par erreur dans `AHBENR`, toggle en boucle serree au lieu d'un `set_gpio`, absence de `volatile` sur une variable partagee avec l'IT, convention d'acquittement opposee entre `EXTI->PR` (ecrire 1) et `TIM->SR` (ecrire 0). Version fonctionnelle obtenue (LED s'allume/s'eteint aleatoirement), deux raffinements identifies mais pas encore confirmes corriges. Fin de session : l'utilisateur demande a Claude de gerer tous les commits restants (changement par rapport au fonctionnement habituel ou l'utilisateur gere ses propres commits de code). |
 
 ## Journal des commandes (par TP)
 
@@ -85,6 +86,29 @@ pour le detail) :
 make
 ```
 Build reussi (1140 B Flash, aucun warning sur le code propre).
+
+### tp06-interrupt
+Ecrit par l'utilisateur en autonomie (application timer du chapitre
+"Gerez vos interruptions"). Deux bugs corriges par l'utilisateur suite a
+revue de code (handler togglant `GPIOA` au lieu de `GPIOB`, macro
+inexistante `TIM1_CR1_CEN`). Commit et push geres par l'utilisateur
+lui-meme (`5d2a032`).
+
+### tp07_RandLEd
+```sh
+cp -r template-tp tp07_RandLEd   # inferee depuis la structure du dossier, non rapportee explicitement
+make                              # plusieurs iterations, 2 erreurs de compilation rencontrees et corrigees :
+                                   #  - 'true' undeclared (stdbool.h manquant)
+                                   #  - too few arguments to function 'configure_timer' + ';' manquant
+```
+Ecrit par l'utilisateur en autonomie, avec guidage sur l'ajout d'une
+interruption externe EXTI0/PA0 (SYSCFG_EXTICR, IMR, FTSR, NVIC IRQ 6)
+en plus de TIM2. Nombreux bugs generiques trouves et corriges en cours
+de route (cf. "Pieges rencontres" ci-dessus). Version fonctionnelle
+obtenue (LED s'allume/s'eteint aleatoirement) ; deux raffinements
+identifies mais pas encore confirmes appliques : `set_gpio` au lieu du
+toggle en boucle serree, `volatile` sur `Led_State`. `EXTI0_IRQHandler`
+reste un stub (`// ... ta logique ...`), TARGET du Makefile pas renomme.
 
 ### Reference generale (hors TP specifique)
 Commandes Git discutees cette session, reutilisables sur n'importe quel TP :
@@ -280,6 +304,37 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
   A retenir si on regarde un corrige officiel : verifier qu'un
   peripherique configure est vraiment *utilise* dans le code avant de
   s'embeter a l'adapter.
+
+- **`tp07_RandLEd` - plusieurs bugs generiques C (pas specifiques F103/F303),
+  bonne serie d'exemples concrets** :
+  - `bool`/`true`/`false` ne sont pas des mots-cles du C (contrairement au
+    C++) : necessite `#include <stdbool.h>`, sinon erreur de compilation
+    `'true' undeclared`.
+  - `Led_State = ~Led_State;` (NOT bit-a-bit) au lieu de
+    `Led_State = !Led_State;` (NOT logique) pour toggler un booleen : `~0`
+    et `~1` sont tous les deux non-nuls, donc se reconvertissent tous les
+    deux en `true` une fois stockes dans un `bool` - la variable reste
+    bloquee a `true` pour toujours au lieu d'alterner.
+  - Variable partagee entre `main()` et un handler d'interruption
+    (`Led_State`) sans `volatile` : le compilateur est en droit de
+    supposer qu'elle ne change jamais dans une boucle et de ne la lire
+    qu'une fois en registre - fonctionne "par chance" a `-Og`, pas
+    garanti.
+  - `GPIOB->ODR ^= (1<<3);` (toggle) invoque en boucle serree dans
+    `while(1)` tant qu'une condition reste vraie, au lieu d'un
+    `set_gpio()`/`|=` (forcer l'etat) : ca fait clignoter tres vite au
+    lieu de rester allume proprement pendant toute la phase - variante
+    du piege "toggle sans delai" deja vu sur `tp02`, ici via une boucle
+    serree plutot qu'une simple absence de delai.
+  - `RCC_APB2ENR_SYSCFGEN` (bit d'APB2ENR) mixe par erreur dans une
+    ecriture sur `RCC->AHBENR` : comme les bits ne correspondent pas aux
+    memes positions entre les deux registres, ca activait par erreur
+    l'horloge du DMA (bit 0 d'AHBENR) au lieu de celle de SYSCFG.
+  - `EXTI->PR` s'efface en ecrivant un **1** (`|= EXTI_PR_PR0`), alors
+    que `TIM->SR` s'efface en ecrivant un **0** (`&= ~TIM_SR_UIF`) -
+    deux conventions opposees pour la meme idee d'"acquitter un flag",
+    facile a inverser par erreur en copiant le pattern d'un peripherique
+    a l'autre.
 
 ## Notes de cours (parties theoriques)
 
@@ -795,10 +850,12 @@ n'occupe pas le CPU a attendre activement.
       de polling dans la boucle). Renommer `TARGET` dans le Makefile.
 - [ ] Tester `tp06-interrupt` sur la carte reelle (build valide, pas
       encore flashe/verifie physiquement)
-- [ ] Ecrire soi-meme le TP "LED aleatoire" (Partie 3 ch.6), en
-      s'appuyant sur `correction/` uniquement pour verifier apres coup
-      (pas avant). Puis tester `correction/` sur la carte reelle (build
-      valide, pas encore flashe).
+- [ ] `tp07_RandLEd` : appliquer les 2 raffinements identifies
+      (`set_gpio` au lieu du toggle en boucle serree, `volatile` sur
+      `Led_State`) et confirmer le comportement visuel corrige. Ecrire la
+      logique de `EXTI0_IRQHandler` (encore un stub). Renommer `TARGET`.
+      Puis comparer avec `correction/` (build valide, pas encore
+      flashe/teste sur la carte).
 - [ ] Faire le quiz de fin de Partie 3 ("Microcontroleur et premiers
       peripheriques")
 - [ ] Terminer le quiz de la Partie 2 (toujours en attente depuis le
