@@ -38,6 +38,7 @@ Voir aussi :
 | 2026-09-16 | Chapitre "Gerez vos interruptions" (application timer, Partie 3 ch.5) lu et resume : DIER/UIE, IRQ28=TIM2 verifie identique F103/F303, piege `NVIC_ISER_SETENA_28` absente du CMSIS F303 (remplacee par `(1<<28)`), alternative `NVIC_EnableIRQ`/`NVIC_SetPriority` decouverte dans `core_cm4.h`. `tp06-interrupt` ecrit par l'utilisateur en autonomie ; 2 bugs identifies et corriges par l'utilisateur suite a revue : handler togglant `GPIOA` (PA5, reste du code du cours) au lieu de `GPIOB` (PB3, la broche reellement configuree), et macro inexistante `TIM1_CR1_CEN` au lieu de `TIM_CR1_CEN` - build final valide (868 B Flash). **Exception ponctuelle** (comme `tp01-hello-uart`) : a la demande explicite de l'utilisateur, Claude a redige integralement le corrige du chapitre suivant ("LED aleatoire", Partie 3 ch.6) dans un nouveau dossier `correction/`, pour que l'utilisateur puisse verifier son propre travail plus tard sans que ca remplace l'exercice. Adapte depuis le corrige officiel du cours (`main_v1_correction.c` telecharge depuis static.oc-static.com) : LED PA5->PB3, PC13/TIM4 retires (vestiges non utilises dans cette version + absents du F303K8), PSC recalcule pour l'horloge reelle actuelle a 8 MHz (tick exact de 1 ms, simplifie le `10*rand()` du cours en `rand()` direct) plutot que de supposer les 72 MHz du F103. Build reussi (1140 B Flash). |
 | 2026-09-17 | `tp07_RandLEd` : l'utilisateur ecrit son propre TP "LED aleatoire" en autonomie (guidage Claude uniquement, `correction/` non consultee avant). Approche a un seul timer (TIM2, ARR alterne entre 300 et `rand()`) plutot que deux timers separes, plus ajout d'une interruption externe EXTI0/PA0 pour le bouton du joystick (SYSCFG_EXTICR, IMR, FTSR, NVIC IRQ 6 - nouveaute par rapport a `correction/`). Session de debug fournie riche en pieges generiques C (pas specifiques F103/F303, cf. "Pieges rencontres") : `stdbool.h` manquant, `~` au lieu de `!` pour toggler un booleen, appel de fonction avec mauvaise arite + `;` manquant, `RCC_APB2ENR_SYSCFGEN` ecrit par erreur dans `AHBENR`, toggle en boucle serree au lieu d'un `set_gpio`, absence de `volatile` sur une variable partagee avec l'IT, convention d'acquittement opposee entre `EXTI->PR` (ecrire 1) et `TIM->SR` (ecrire 0). Version fonctionnelle obtenue (LED s'allume/s'eteint aleatoirement), deux raffinements identifies mais pas encore confirmes corriges. Fin de session : l'utilisateur demande a Claude de gerer tous les commits restants (changement par rapport au fonctionnement habituel ou l'utilisateur gere ses propres commits de code). |
 | 2026-09-22 | Reprise : `tp07_RandLEd` verifie - les 2 raffinements de la session precedente (`set_gpio` au lieu du toggle en boucle serree, `volatile` sur `Led_State`) sont bien appliques et le build reste propre ; `EXTI0_IRQHandler` reste volontairement un stub, confirme par l'utilisateur comme conforme au perimetre du cours (detection du bouton prevue pour une iteration ulterieure du cours, pas cette version). **Exception ponctuelle** (2e apres la LED aleatoire) : a la demande explicite de l'utilisateur, Claude a implemente le chapitre "Configurez un modulateur de longueur d'impulsion" (PWM, Partie 4 ch.1) dans `correction/`, en **remplacant** le corrige "LED aleatoire" precedent (choix explicite de l'utilisateur - l'ancienne version reste recuperable via `git show 5d2a032:correction/src/main.c`). `correction/` devient ainsi un dossier de reference reutilise au fil des chapitres plutot qu'un TP fige. Adaptation notable : PA6/TIM3_CH1 existe sur les deux puces mais le F303 exige un numero d'AF explicite (**AF2**, trouve par recherche externe, a confirmer au besoin dans le datasheet) via `AFR[]`, la ou le F103 se contente d'un champ CRL combine sans ce choix explicite. Frequences PWM (20 kHz) et de balayage du rapport cyclique (100 ms) recalculees pour l'horloge reelle a 8 MHz. Coquille reperee dans le code du cours lui-meme (`set_pulse_percentage(TIM3, 0x100)`, hors plage 0-100%) et corrigee sans consequence fonctionnelle. Build reussi (1048 B Flash). Chapitre ADC ("Domptez votre convertisseur analogique-numerique", Partie 4 ch.2) lu ; l'utilisateur n'a pas de potentiometre disponible, ne fera donc pas ce TP lui-meme. **3e exception ponctuelle** : Claude a etendu `correction/` (v3) en y ajoutant l'ADC (PA0=ADC1_IN1, lecture continue en boucle principale remplacant le balayage IT de TIM2 de la version PWM seule), et redige un resume complet de la procedure ADC generique + tableau comparatif registre-par-registre F103/F303 dans "Notes de cours". Peripherique identifie comme le plus profondement redessine rencontre jusqu'ici entre les deux puces (registres entierement renommes/restructures CR1/CR2/SR/SQR1/SQR3 -> CR/CFGR/ISR/SQR1, etape du regulateur de tension ADVREGEN totalement absente du F103, numerotation des canaux ADC sans rapport avec le F103 - PB0=IN8 sur F103, PA0=IN1 sur F303). Build reussi (1180 B Flash, un warning cosmetique de commentaire corrige). |
+| 2026-09-22 | Fin de la lecture de la Partie 4 : chapitres "Communiquez en serie" (UART, analyse ligne-par-ligne guidee, pas de code ecrit par Claude), "Terminez sur des bonnes pratiques" (generique, conseils de conception) et "Entrainez-vous en detectant l'appui sur un bouton" resumes dans "Notes de cours". Pour ce dernier (suite du jeu LED aleatoire v1 avec detection du bouton par interruption), **4e exception ponctuelle** : Claude a remplace `correction/` (v3 PWM+ADC, recuperable via `git show c23db1e:correction/src/main.c`) par le corrige officiel adapte (`main_v2_correction.c` telecharge depuis static.oc-static.com) - bouton PC13 absent du Nucleo-32 remplace par le SW du joystick sur PA0 (meme montage que `tp07_RandLEd`), TIM4 absent du F303K8 remplace par TIM6, mecanisme EXTI PC13/AFIO -> PA0/SYSCFG deja rencontre sur tp07 mais avec cette fois un IRQ dedie (EXTI0) au lieu du partage EXTI15_10 du F103. Nouveau piege decouvert : TIM6 a l'IRQ 54 (>31), necessite `NVIC->ISER[1]` au lieu de `ISER[0]` (premiere fois dans ce projet). Build reussi du premier coup (1384 B Flash). Partie 4 terminee cote lecture (reste le quiz de fin de partie). |
 
 ## Journal des commandes (par TP)
 
@@ -112,6 +113,16 @@ make clean && make
 Un warning cosmetique rencontre puis corrige (`**` markdown dans un
 commentaire C interprete comme un `/*` imbrique - `-Wcomment`). Build
 final reussi (1180 B Flash, aucun warning).
+
+**v4 - "Entrainez-vous en detectant l'appui sur un bouton" (Partie 4
+ch.5)** - `src/main.c` remplace (suite du jeu "LED aleatoire" v1, pas
+de la branche PWM+ADC) (v3 PWM+ADC recuperable via
+`git show c23db1e:correction/src/main.c`) :
+```sh
+make clean && make
+```
+Build reussi (1384 B Flash, aucun warning) des la premiere tentative.
+
 
 ### tp06-interrupt
 Ecrit par l'utilisateur en autonomie (application timer du chapitre
@@ -379,6 +390,17 @@ Point cle a retenir : le CPU halte **ne remet pas a zero les peripheriques**
   (le rapport cyclique est recalcule des le premier debordement de
   TIM2), mais bon reflexe de reperer une valeur qui ne "sent" pas juste
   avant de la recopier telle quelle.
+
+- **Index NVIC `ISER[1]` pour une IRQ >= 32 (`correction` v4, chapitre
+  bouton)** : `NVIC->ISER[0]` ne couvre que les IRQ 0-31. TIM6 est
+  l'IRQ 54 (`TIM6_DAC1_IRQn`) - il faut `NVIC->ISER[1] |= (1 << (54-32))`.
+  Toutes les IRQ utilisees dans ce projet jusque-la (TIM2=28, TIM3=29,
+  EXTI0=6) tenaient dans `ISER[0]`, facile d'oublier que ce n'est pas
+  toujours le cas.
+- **`USART->ICR` pour acquitter `TC` (chapitre UART)** : contrairement
+  au F103 ou `TC` s'efface tout seul, le F303 exige une ecriture
+  explicite dans un registre dedie `ICR` (`USART_ICR_TCCF`) - sinon le
+  flag reste bloque a 1 d'une transmission precedente.
 
 ## Notes de cours (parties theoriques)
 
@@ -915,6 +937,98 @@ rencontre jusqu'ici entre F103 et F303 (bien plus qu'un renommage de
 registres comme pour GPIO/TIM/USART) - une etape entiere (le regulateur
 de tension) n'existe meme pas sur le F103.
 
+### Partie 4 - Communiquez en serie (UART/USART)
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4630166-communiquez-en-serie)
+
+Analyse ligne-par-ligne faite avec l'utilisateur (pas de code ecrit par
+Claude - guidage uniquement, l'utilisateur adapte lui-meme). Registres
+cours (F103, legacy) : `DR` (donnee), `SR.TC` (fin de transmission).
+Registres F303 (moderne, comme deja vu partout ailleurs) : **`TDR`**
+(transmission) / **`RDR`** (reception, registres separes au lieu d'un
+seul `DR`), **`ISR.TC`**.
+
+**Piege non present dans le code du cours** : sur F303, le flag `TC` ne
+s'efface pas tout seul au prochain envoi - il faut l'acquitter via un
+registre dedie, **`ICR`** (Interrupt Clear Register), absent du F103 :
+`USART1->ICR |= USART_ICR_TCCF;`. Sans ca, `TC` peut rester bloque a 1
+d'un envoi precedent et faire sauter l'attente du prochain.
+
+**GPIO alternative function generique** : le cours ecrit une fonction
+`configure_gpio_alternate_push_pull(gpio, pin)` reutilisable pour
+n'importe quelle broche/fonction alternative, en s'appuyant sur le fait
+que le F103 n'a pas besoin de preciser QUELLE fonction (gere par
+`AFIO_MAPR` globalement). **Sur F303, cette genericite ne suffit plus** :
+il faut un troisieme parametre, le numero d'AF (`AFR[]`), qui differe
+selon la fonction visee (AF7 pour USART, AF2 pour TIM3 vu au chapitre
+PWM...). Le decoupage `CRL`/`CRH` selon `pin < 8` devient un decoupage
+`AFR[0]`/`AFR[1]` au meme seuil (broches 0-7 vs 8-15).
+
+**Choix pratique** : le cours utilise USART1/PA9 - broche disponible sur
+le connecteur Nucleo-32 (label "D1") mais **pas cablee au ST-LINK**
+(contrairement a USART2/PA2 deja utilisee sur `tp01-hello-uart`). Pour
+observer facilement la sortie via `picocom` sans materiel externe,
+USART2 reste le choix le plus pratique sur cette carte.
+
+### Partie 4 - Terminez sur des bonnes pratiques
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4630296-terminez-sur-des-bonnes-pratiques)
+
+Chapitre generique (pas de code), conseils de conception plutot que de
+registres :
+1. **Reutilisabilite** : eviter de reecrire les memes fonctions de
+   configuration de peripherique a chaque projet - en batir une
+   bibliotheque personnelle (exactement la demarche de ce repo avec
+   `common/mk/`, `vendor/`, et `correction/` qui accumule les corriges
+   au fil des chapitres).
+2. **Architecture en couches** : separer la configuration/utilisation
+   d'un peripherique de la logique specifique a l'application.
+3. **S'appuyer sur les bibliotheques du fabricant** (HAL/LL ST) plutot
+   que tout reecrire soi-meme en production - testees et plus sures.
+   Nuance pour ce projet : on reste volontairement au niveau registre
+   pour l'apprentissage (objectif explicite du cours et de ce
+   parcours), mais le conseil vaut pour du code professionnel reel.
+4. **Comprendre le materiel avant d'optimiser** (vitesse, consommation,
+   taille memoire) - la connaissance generique aide, mais l'optimisation
+   reelle demande de connaitre les specificites exactes de la puce.
+5. **Outils de configuration graphique** (STM32CubeMX) : accelerent le
+   developpement, au prix d'un controle plus fin en moins.
+6. **OS embarque** (RTX, µC/OS...) pour des applications concurrentes
+   complexes plutot que gerer le multitache a la main.
+
+### Partie 4 - Entrainez-vous en detectant l'appui sur un bouton
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/6790876-entrainez-vous-en-detectant-l-appui-sur-un-bouton)
+
+Suite directe du jeu "LED aleatoire" (v1) : le joueur doit appuyer sur
+le bouton PENDANT que la LED est allumee (fenetre de 300 ms). Victoire
+-> la LED clignote regulierement (periode 250 ms) au lieu de reprendre
+le cycle aleatoire. Contrainte du cours : detection du bouton **par
+interruption uniquement**, pas de polling. Implemente dans `correction/`
+(remplace la version PWM+ADC, recuperable via
+`git show c23db1e:correction/src/main.c`).
+
+**Adaptations principales (detail complet dans les commentaires en tete
+de `correction/src/main.c`) :**
+- Bouton : PC13 (integre au Nucleo-64, avec pull-up deja cablee) n'existe
+  pas sur le Nucleo-32 -> remplace par le SW du joystick sur **PA0**
+  (meme montage que `tp07_RandLEd`), avec `PUPDR` pull-up interne
+  (le module n'a pas de pull-up integree, contrairement au bouton du
+  Nucleo-64).
+- **TIM4** (clignotement de victoire) : absent du F303K8 -> remplace par
+  **TIM6** (timer basique, suffisant pour un simple debordement
+  periodique sans canal de sortie).
+- Interruption externe : `AFIO->EXTICR[3]`/`RCC_APB2ENR_AFIOEN`/
+  gestionnaire **partage** `EXTI15_10_IRQHandler` (F103, PC13=ligne 13)
+  -> `SYSCFG->EXTICR[0]`/`RCC_APB2ENR_SYSCFGEN`/gestionnaire **dedie**
+  `EXTI0_IRQHandler` (F303, PA0=ligne 0 - les lignes basses ont chacune
+  leur propre IRQ sur F303, pas de partage a gerer ici).
+- **Piege NVIC decouvert sur ce chapitre** : TIM6 a l'IRQ numero **54**
+  (`TIM6_DAC1_IRQn`) - premier registre de ce projet ou l'IRQ depasse 31.
+  `NVIC->ISER[0]` ne couvre que les IRQ 0-31 ; il faut
+  `NVIC->ISER[1] |= (1 << (54-32))`. Toutes les IRQ rencontrees jusqu'ici
+  (TIM2=28, TIM3=29, EXTI0=6) tenaient dans `ISER[0]`, ce qui aurait pu
+  faire oublier ce cas.
+
+Build reussi (1384 B Flash).
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -954,8 +1068,18 @@ de tension) n'existe meme pas sur le F103.
       pas encore flashe/teste sur la carte - contient maintenant PWM+ADC
       combines, v3).
 - [ ] (optionnel, si acquisition d'un potentiometre ou reutilisation du
-      VRx/VRy du joystick) Flasher `correction/` v3 et verifier que le
-      rapport cyclique de la LED suit bien la position du potentiometre.
+      VRx/VRy du joystick) Recuperer la v3 PWM+ADC via
+      `git show c23db1e:correction/src/main.c` et la flasher pour
+      verifier que le rapport cyclique de la LED suit la position du
+      potentiometre.
+- [ ] Flasher `correction/` v4 (jeu bouton) sur la carte reelle et
+      verifier le montage joystick/PA0 deja cable pour `tp07_RandLEd`.
+- [ ] Ecrire soi-meme le TP UART (Partie 4 ch.3) en autonomie a partir
+      de l'analyse ligne-par-ligne deja faite, en choisissant entre
+      USART1/PA9 (fidele au cours, pas de VCP) et USART2/PA2 (VCP,
+      plus pratique pour tester avec picocom).
+- [ ] Faire le quiz de fin de Partie 4 ("Les grands principes des
+      differents peripheriques")
 - [ ] Faire le quiz de fin de Partie 3 ("Microcontroleur et premiers
       peripheriques")
 - [ ] Terminer le quiz de la Partie 2 (toujours en attente depuis le
