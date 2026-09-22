@@ -1,225 +1,288 @@
 /*
- * correction - PWM (Partie 4 ch.1) + ADC (Partie 4 ch.2, "Domptez votre
- * convertisseur analogique-numerique") combines : la position d'un
- * potentiometre pilote en direct le rapport cyclique d'une PWM.
- * (Cours OpenClassrooms "Developpez en C pour l'embarque")
+ * correction - "Entrainez-vous en detectant l'appui sur un bouton"
+ * (Partie 4 ch.5, cours OpenClassrooms "Developpez en C pour l'embarque")
  *
  * ATTENTION : ce fichier a ete redige par Claude a la demande explicite
- * de l'utilisateur (l'utilisateur n'a pas de potentiometre sous la main
- * pour faire ce TP lui-meme), pour servir de corrige de reference -
- * PAS pour remplacer l'exercice. Version PWM seule (sans ADC)
- * recuperable via `git show 1fe78ac:correction/src/main.c`.
+ * de l'utilisateur, pour servir de corrige de reference - PAS pour
+ * remplacer l'exercice. Remplace le corrige PWM+ADC precedent
+ * (recuperable via `git show c23db1e:correction/src/main.c`).
  *
- * L'exemple officiel du cours combine directement PWM + ADC dans le
- * main() final : le balayage automatique du rapport cyclique par IT de
- * TIM2 (chapitre PWM seul) est remplace ici par une lecture continue du
- * potentiometre dans la boucle principale - TIM2 n'est donc plus utilise
- * du tout dans cette version.
+ * C'est la suite directe du jeu "LED aleatoire" (v1, Partie 3 ch.6,
+ * recuperable via `git show 5d2a032:correction/src/main.c`) : le
+ * joueur doit appuyer sur le bouton PENDANT que la LED est allumee
+ * (fenetre de 300 ms). En cas de reussite, la LED clignote a un rythme
+ * regulier (periode 250 ms) au lieu de reprendre le cycle aleatoire.
  *
- * PORTAGE NUCLEO-F303K8 - PWM (identique a la version precedente,
- * cf. `git show 1fe78ac` pour le detail) : PA6/TIM3_CH1 via AF2,
- * frequence PWM recalculee pour l'horloge reelle a 8 MHz.
+ * Adapte depuis le corrige officiel du cours (main_v2_correction.c,
+ * telecharge depuis static.oc-static.com), concu pour une NUCLEO-F103RB.
+ * Portage NUCLEO-F303K8 :
  *
- * PORTAGE NUCLEO-F303K8 - ADC (**le plus gros ecart de tout ce projet**) :
- * le peripherique ADC a ete entierement redessine entre le F103 et le
- * F303, ce n'est pas un simple renommage de registres.
- *
- * 1. Broche : le cours utilise PB0 (ADC1_IN8 sur F103). Ici, **PA0**
- *    (label "A0" du connecteur Nucleo-32) est utilise a la place =
- *    **ADC1_IN1** sur le F303 (verifie par recherche externe) - PB0
- *    aurait aussi fonctionne (broche presente sur le connecteur, label
- *    "D3"), mais son numero de canal ADC sur F303 n'a pas ete verifie ;
- *    PA0 est le choix le plus documente/standard.
- * 2. GPIO en mode analogique : F103 = CRL nibble entierement a `0000`
- *    (MODE=00 + CNF=00). F303 = **`MODER` = `11`** (pas `00`, qui est un
- *    simple mode entree numerique sur cette puce !) - erreur facile a
- *    faire en copiant le reflexe "mettre les bits a 0" du F103.
- * 3. Peripherique ADC completement redessine : le F103 utilise
- *    `CR1`/`CR2`/`SR`/`SQR1`/`SQR3` (legacy). Le F303 utilise
- *    `CR`/`CFGR`/`ISR`/`SQR1` (architecture "moderne", comme pour
- *    USART/GPIO) - noms de registres differents, PAS de simple
- *    correspondance 1-pour-1.
- * 4. Horloge : F103 = `RCC->APB2ENR`/`ADC1EN` + prescaler dans
- *    `RCC->CFGR` (`ADCPRE_DIV6`, ADC limite a 14 MHz). F303 =
- *    `RCC->AHBENR`/`ADC12EN` (bit 28, partage entre ADC1 et ADC2) +
- *    mode d'horloge dans `ADC12_COMMON->CCR` (`CKMODE`) - choisi ici en
- *    synchrone HCLK/1 (le plus simple, pas besoin d'une horloge ADC
- *    dediee separee).
- * 5. **Etape totalement absente du F103** : le F303 a un regulateur de
- *    tension interne dedie a l'ADC (`ADVREGEN`) qu'il faut activer
- *    explicitement et laisser stabiliser quelques microsecondes avant
- *    de calibrer/activer l'ADC - sans ca, l'ADC ne fonctionne pas du
- *    tout. Absent de la procedure F103, qui n'a pas ce regulateur.
- * 6. Calibration : F103 = `CR2.CAL`, attendre qu'il retombe a 0. F303 =
- *    meme principe mais avec `CR.ADCAL` (nom different, mecanisme
- *    identique).
- * 7. Activation : F103 n'a qu'un `ADON` (un bit fait tout : active PUIS
- *    declenche une conversion en le reecrivant). F303 separe clairement
- *    les etapes : `ADEN` (active l'ADC, attendre le flag `ADRDY`) PUIS
- *    `ADSTART` (declenche une conversion) - deux bits distincts pour
- *    deux actions distinctes.
- * 8. Sequence de conversion (`SQR1`) : le F103 repartit les canaux
- *    entre plusieurs registres (`SQR1`/`SQR2`/`SQR3`, le premier canal
- *    est dans `SQR3`). Le F303 regroupe la longueur de sequence ET le
- *    1er canal dans le **meme registre** `SQR1` (champs `L` et `SQ1`
- *    distincts mais co-localises) - a ne pas chercher dans `SQR3` sur
- *    F303, la disposition est differente.
- * 9. Acquittement des flags de fin de conversion : `ADC->ISR` s'efface
- *    en ecrivant un **1** (`|= ADC_ISR_EOC`), comme `EXTI->PR` deja vu -
- *    PAS comme `TIM->SR` (ecriture a 0). Le F103 utilisait deja ce
- *    style figure (`SR &= ~EOC`) pour son ADC - encore un exemple de
- *    convention qui differe non seulement entre F103 et F303, mais
- *    entre peripheriques d'une meme puce.
+ * 1. LED : PA5 (LD2, F103) -> PB3 (LD3, F303K8), comme sur toutes les
+ *    versions precedentes de ce corrige.
+ * 2. Bouton : le cours utilise PC13 (bouton USER integre du Nucleo-64,
+ *    avec pull-up deja cable sur la carte). **PC13 n'existe pas sur le
+ *    connecteur du Nucleo-32.** Remplace ici par le SW du joystick
+ *    externe sur breadboard, cable sur **PA0** (meme montage que sur
+ *    `tp07_RandLEd`) : pas de pull-up integree sur le module, donc
+ *    `PUPDR` interne en pull-up plutot que l'entree "floating" du cours
+ *    (qui ne fonctionnerait pas sans resistance externe sur ce module).
+ * 3. **TIM4** (clignotement de victoire) : **n'existe pas sur le
+ *    F303K8** (cf. `docs/correspondance-f103-f303.md` §5). Remplace par
+ *    **TIM6** (timer basique, suffisant : on n'a besoin que d'un
+ *    debordement periodique, pas de canaux de sortie).
+ * 4. Interruption externe du bouton : mecanisme totalement different,
+ *    comme deja rencontre sur `tp07_RandLEd` :
+ *    - F103 : `AFIO->EXTICR[3]` (PC13 = ligne EXTI13, registre
+ *      EXTICR n°3 = ligne 12-15), `RCC_APB2ENR_AFIOEN`, gestionnaire
+ *      partage `EXTI15_10_IRQHandler` (les lignes 10 a 15 partagent une
+ *      seule IRQ sur F103).
+ *    - F303 : `SYSCFG->EXTICR[0]` (PA0 = ligne EXTI0, registre n°0),
+ *      `RCC_APB2ENR_SYSCFGEN`, gestionnaire **dedie** `EXTI0_IRQHandler`
+ *      (les lignes 0 a 4 ont chacune leur propre IRQ sur F303 - pas de
+ *      partage a gerer ici, plus simple que le cas PC13 du cours).
+ * 5. **Piege d'indexation NVIC** : TIM6 a l'IRQ numero **54**
+ *    (`TIM6_DAC1_IRQn`, verifie dans stm32f303x8.h) - le premier
+ *    registre utilise dans ce projet ou l'IRQ depasse 31 ! `ISER[0]`
+ *    couvre les IRQ 0-31, `ISER[1]` couvre les IRQ 32-63. Il faut donc
+ *    `NVIC->ISER[1] |= (1 << (54-32))`, PAS `ISER[0]` comme pour
+ *    TIM2/TIM3/EXTI0 (tous < 32) - erreur facile a faire en copiant le
+ *    reflexe habituel sans recalculer l'index de tableau.
+ * 6. `NVIC_ISER_SETENA_28/29/30/8` (cours) : macros absentes de notre
+ *    CMSIS (meme piege que sur les corriges precedents), remplacees par
+ *    des decalages de bit bruts.
+ * 7. Frequences recalculees pour l'horloge REELLE actuelle (HSI 8 MHz,
+ *    pas de PLL) plutot que les 72 MHz supposes par le cours - meme
+ *    convention "tick de 1 ms" (`PSC=7999`) que sur les corriges
+ *    precedents : `ARR=300` pour 300 ms, `ARR=rand()` directement en ms
+ *    pour l'attente aleatoire, `ARR=249` pour les 250 ms de clignotement
+ *    de victoire (au lieu de `PSC=7199`/`ARR=2499` a 72 MHz).
+ * 8. `led_on`/`victoire` marquees `volatile` (bonne pratique deja vue
+ *    sur `tp07_RandLEd` pour une variable partagee entre plusieurs
+ *    gestionnaires d'interruption).
  */
 
 #include "stm32f3xx.h"
 
 /*****************************************************************
 Peripheriques utilises :
-GPIOA, broche 6 (label "A5") : sortie PWM, AF2 = TIM3_CH1
-GPIOA, broche 0 (label "A0") : entree analogique, ADC1_IN1
-TIM3 : genere le signal PWM 20 kHz sur son canal 1
-ADC1 : lit la position du potentiometre en continu (polling)
+GPIOB, broche 3 : pilote LD3 (LED verte utilisateur)
+GPIOA, broche 0 : detecte l'appui du bouton (SW du joystick externe)
+TIM2 : chronometre les 300 ms d'allumage de la LED
+TIM3 : chronometre l'intervalle aleatoire avant d'allumer la LED
+TIM6 : assure le clignotement de la LED en cas de victoire
+EXTI0 : declenche l'interruption sur l'appui du bouton (front descendant)
 *****************************************************************/
 
-void configure_gpio_pa6_alternate_push_pull(void);
-void configure_pwm_ch1_20khz(TIM_TypeDef *TIMER);
-void start_timer(TIM_TypeDef *TIMER);
-void set_pulse_percentage(TIM_TypeDef *TIMER, int pulse);
-void configure_gpio_pa0_analog_input(void);
-void configure_adc_in1(void);
-int convert_single(void);
+int rand(void);
+void configure_gpio_pb3(void);
+void configure_gpio_pa0(void);
+void configure_syscfg_exti_pa0(void);
+void set_gpio(GPIO_TypeDef *GPIO, int n);
+void reset_gpio(GPIO_TypeDef *GPIO, int n);
+void configure_timer(TIM_TypeDef *TIM, int psc, int arr);
+void configure_it(void);
+void start_timer(TIM_TypeDef *TIM);
+void stop_timer(TIM_TypeDef *TIM);
+
+/*****************************************************************
+Variables globales
+*****************************************************************/
+
+volatile int led_on = 0;   /* indique si la LED est allumee ou non */
+volatile int victoire = 0; /* indique si le joueur a gagne (informatif) */
+
+/*****************************************************************
+MAIN
+*****************************************************************/
 
 int main(void)
 {
-    configure_gpio_pa6_alternate_push_pull();
-    configure_pwm_ch1_20khz(TIM3);
-    set_pulse_percentage(TIM3, 0);
+    /* Configuration des ports d'entree/sortie */
+    configure_gpio_pb3();
+    configure_gpio_pa0();
+    configure_syscfg_exti_pa0();
 
-    configure_gpio_pa0_analog_input();
-    configure_adc_in1();
+    /* Configuration des timers */
+    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN | RCC_APB1ENR_TIM3EN | RCC_APB1ENR_TIM6EN;
+    configure_timer(TIM2, 7999, 300);
+    configure_timer(TIM3, 7999, rand());
+    configure_timer(TIM6, 7999, 249);
 
+    /* Configuration des interruptions */
+    configure_it();
+
+    /* Demarrage du premier timer (attente aleatoire avant 1er allumage) */
     start_timer(TIM3);
 
+    /* Boucle d'attente du processeur - tout se passe dans les IT */
     while (1) {
-        int res = convert_single();
-        set_pulse_percentage(TIM3, 100 * res / 0xFFF);
     }
 
     return 0;
 }
 
 /*****************************************************************
-Corps des fonctions - PWM (inchange par rapport a la version precedente)
+Corps des fonctions
 *****************************************************************/
 
 /**
- * Configure PA6 en fonction alternative push-pull (AF2 = TIM3_CH1).
+ * Configure la broche 3 du port B (LD3) en sortie push-pull.
  */
-void configure_gpio_pa6_alternate_push_pull(void)
+void configure_gpio_pb3(void)
+{
+    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
+    GPIOB->MODER &= ~(0x03 << 2 * 3);
+    GPIOB->MODER |= (0x01 << 2 * 3);
+}
+
+/**
+ * Configure la broche 0 du port A (bouton SW du joystick) en entree
+ * avec pull-up interne (le module n'a pas de pull-up integree).
+ */
+void configure_gpio_pa0(void)
 {
     RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-
-    GPIOA->MODER &= ~(0x03 << 2 * 6);
-    GPIOA->MODER |= (0x02 << 2 * 6);
-
-    GPIOA->AFR[0] &= ~GPIO_AFRL_AFRL6;
-    GPIOA->AFR[0] |= (2U << GPIO_AFRL_AFRL6_Pos);
+    GPIOA->MODER &= ~(0x03 << 2 * 0);
+    GPIOA->PUPDR &= ~(0x03 << 2 * 0);
+    GPIOA->PUPDR |= (0x01 << 2 * 0);
 }
 
 /**
- * Configure TIMER, canal 1, en PWM mode 1 a 20 kHz (sans le demarrer).
+ * Met a 1 la sortie de la broche n du port GPIO.
  */
-void configure_pwm_ch1_20khz(TIM_TypeDef *TIMER)
+void set_gpio(GPIO_TypeDef *GPIO, int n)
 {
-    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
-
-    TIMER->PSC = 0;
-    TIMER->ARR = 399; /* 8 MHz / 400 = 20 kHz */
-
-    TIMER->CCMR1 &= ~TIM_CCMR1_OC1M_0;
-    TIMER->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2;
-
-    TIMER->CCER |= TIM_CCER_CC1E;
+    GPIO->ODR |= (0x01 << n);
 }
 
 /**
- * Demarre le timer TIMER.
+ * Met a 0 la sortie de la broche n du port GPIO.
  */
-void start_timer(TIM_TypeDef *TIMER)
+void reset_gpio(GPIO_TypeDef *GPIO, int n)
 {
-    TIMER->CR1 |= TIM_CR1_CEN;
+    GPIO->ODR &= ~(0x01 << n);
 }
 
 /**
- * Regle le rapport cyclique de TIMER (canal 1) en pourcentage (0-100).
+ * Configure la periode du timer TIM (psc/arr) sans le demarrer.
  */
-void set_pulse_percentage(TIM_TypeDef *TIMER, int pulse)
+void configure_timer(TIM_TypeDef *TIM, int psc, int arr)
 {
-    TIMER->CCR1 = TIMER->ARR * pulse / 100;
+    TIM->ARR = arr;
+    TIM->PSC = psc;
+}
+
+/**
+ * Demarre le timer TIM.
+ */
+void start_timer(TIM_TypeDef *TIM)
+{
+    TIM->CR1 |= TIM_CR1_CEN;
+}
+
+/**
+ * Arrete le timer TIM.
+ */
+void stop_timer(TIM_TypeDef *TIM)
+{
+    TIM->CR1 &= ~TIM_CR1_CEN;
+}
+
+/**
+ * Configure PA0 comme source d'interruption externe (ligne EXTI0).
+ */
+void configure_syscfg_exti_pa0(void)
+{
+    RCC->APB2ENR |= RCC_APB2ENR_SYSCFGEN;
+    SYSCFG->EXTICR[0] &= ~SYSCFG_EXTICR1_EXTI0;
+    SYSCFG->EXTICR[0] |= SYSCFG_EXTICR1_EXTI0_PA;
+}
+
+/**
+ * Configure toutes les interruptions du systeme.
+ */
+void configure_it(void)
+{
+    /* Interruption de TIM2 (IRQ 28) */
+    TIM2->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1 << 28);
+
+    /* Interruption de TIM3 (IRQ 29) */
+    TIM3->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[0] |= (1 << 29);
+
+    /* Interruption de TIM6 (IRQ 54 - depasse 31, va dans ISER[1] a
+       l'index 54-32=22, pas dans ISER[0] !) */
+    TIM6->DIER |= TIM_DIER_UIE;
+    NVIC->ISER[1] |= (1 << (54 - 32));
+
+    /* Interruption externe EXTI0 (bouton, front descendant) */
+    EXTI->IMR |= EXTI_IMR_MR0;
+    EXTI->FTSR |= EXTI_FTSR_FT0;
+    NVIC->ISER[0] |= (1 << 6); /* IRQ 6 = EXTI0 */
 }
 
 /*****************************************************************
-Corps des fonctions - ADC
+Fonctions d'interruption
+*****************************************************************/
+
+/* Fin des 300 ms LED allumee -> on l'eteint et on relance une attente
+   aleatoire */
+void TIM2_IRQHandler(void)
+{
+    reset_gpio(GPIOB, 3);
+    led_on = 0;
+    stop_timer(TIM2);
+    configure_timer(TIM3, 7999, rand());
+    start_timer(TIM3);
+    TIM2->SR &= ~TIM_SR_UIF;
+}
+
+/* Fin de l'attente aleatoire -> on allume la LED pour 300 ms */
+void TIM3_IRQHandler(void)
+{
+    set_gpio(GPIOB, 3);
+    led_on = 1;
+    stop_timer(TIM3);
+    start_timer(TIM2);
+    TIM3->SR &= ~TIM_SR_UIF;
+}
+
+/* Clignotement de victoire (toggle toutes les 250 ms) */
+void TIM6_IRQHandler(void)
+{
+    if (GPIOB->ODR & (0x01 << 3)) {
+        reset_gpio(GPIOB, 3);
+    } else {
+        set_gpio(GPIOB, 3);
+    }
+    TIM6->SR &= ~TIM_SR_UIF;
+}
+
+/* Appui du bouton : victoire seulement si la LED etait allumee au
+   moment de l'appui */
+void EXTI0_IRQHandler(void)
+{
+    if (led_on) {
+        victoire = 1;
+        stop_timer(TIM2);
+        stop_timer(TIM3);
+        start_timer(TIM6);
+    }
+    EXTI->PR |= EXTI_PR_PR0; /* s'efface en ecrivant 1, comme deja vu */
+}
+
+/*****************************************************************
+Fonction pre-definie (identique au cours - generateur pseudo-aleatoire
+logiciel, aucune dependance materielle donc aucune adaptation F103/F303)
 *****************************************************************/
 
 /**
- * Configure PA0 en entree analogique (MODER = 11, PAS 00).
+ * Retourne une valeur entiere pseudo-aleatoire comprise entre 800 et 1800.
  */
-void configure_gpio_pa0_analog_input(void)
+int rand(void)
 {
-    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-
-    GPIOA->MODER |= (0x03 << 2 * 0); /* 11 = analogique sur F303 */
-}
-
-/**
- * Active et calibre ADC1 sur son canal 1 (PA0), sans lancer de
- * conversion.
- */
-void configure_adc_in1(void)
-{
-    RCC->AHBENR |= RCC_AHBENR_ADC12EN;
-
-    /* Horloge ADC synchrone, HCLK/1 (le plus simple : pas d'horloge
-       ADC dediee separee a configurer) */
-    ADC1_2_COMMON->CCR &= ~ADC12_CCR_CKMODE;
-    ADC1_2_COMMON->CCR |= ADC12_CCR_CKMODE_0;
-
-    /* Etape absente du F103 : activer le regulateur de tension interne
-       de l'ADC et laisser le temps de stabiliser (~10-20us minimum
-       d'apres le datasheet) avant toute calibration/activation */
-    ADC1->CR &= ~ADC_CR_ADVREGEN;
-    ADC1->CR |= ADC_CR_ADVREGEN_0;
-    for (volatile int i = 0; i < 400; i++) {
-        __NOP();
-    }
-
-    /* Calibration (equivalent du CR2.CAL du F103, nom different) */
-    ADC1->CR |= ADC_CR_ADCAL;
-    while (ADC1->CR & ADC_CR_ADCAL) {
-    }
-
-    /* Activation de l'ADC, puis attente du flag "pret" (etape separee
-       du demarrage d'une conversion, contrairement au F103) */
-    ADC1->CR |= ADC_CR_ADEN;
-    while (!(ADC1->ISR & ADC_ISR_ADRDY)) {
-    }
-
-    /* Sequence de 1 seule conversion (L=0), canal 1 en 1ere position */
-    ADC1->SQR1 &= ~ADC_SQR1_L;
-    ADC1->SQR1 &= ~ADC_SQR1_SQ1;
-    ADC1->SQR1 |= (1U << ADC_SQR1_SQ1_Pos);
-}
-
-/**
- * Declenche une conversion sur ADC1 et retourne le resultat (0-4095).
- */
-int convert_single(void)
-{
-    ADC1->CR |= ADC_CR_ADSTART;
-    while (!(ADC1->ISR & ADC_ISR_EOC)) {
-    }
-    ADC1->ISR |= ADC_ISR_EOC; /* s'efface en ecrivant 1, comme EXTI->PR */
-    return ADC1->DR;
+    static int randomseed = 0;
+    randomseed = (randomseed * 9301 + 49297) % 233280;
+    return 800 + (randomseed % 1000);
 }
