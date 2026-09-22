@@ -1,4 +1,4 @@
-TARGET  = tpXX-nom-du-tp
+TARGET  = tp07_RandLEd
 SRCS    = src/main.c
 INCDIRS = inc
 
