@@ -1,77 +1,81 @@
 /*
- * correction - "Entrainez-vous en allumant une LED de maniere aleatoire"
- * (Partie 3, cours OpenClassrooms "Developpez en C pour l'embarque")
+ * correction - "Configurez un modulateur de longueur d'impulsion" (PWM)
+ * (Partie 4, cours OpenClassrooms "Developpez en C pour l'embarque")
  *
  * ATTENTION : ce fichier a ete redige par Claude a la demande explicite
- * de l'utilisateur, pour servir de corrige de reference une fois qu'il
- * aura ecrit sa propre version - PAS pour remplacer l'exercice.
+ * de l'utilisateur, pour servir de corrige de reference - PAS pour
+ * remplacer l'exercice. Remplace l'ancien corrige "LED aleatoire"
+ * (toujours recuperable dans l'historique git, commit dfc1ba2 / 5d2a032).
  *
- * Adapte depuis le corrige officiel du cours
- * (main_v1_correction.c, telecharge depuis static.oc-static.com),
- * concu pour une NUCLEO-F103RB. Portage NUCLEO-F303K8 :
+ * Adapte depuis l'exemple complet donne dans le chapitre du cours
+ * (PA6/TIM3_CH1, PWM 20 kHz, duty cycle balaye par IT de TIM2 toutes
+ * les 100 ms), concu pour une NUCLEO-F103RB. Portage NUCLEO-F303K8 :
  *
- * 1. LED : PA5 (LD2, F103) -> PB3 (LD3, F303K8). Horloge sur
- *    RCC->AHBENR/GPIOBEN (pas APB2ENR/IOPAEN), config via MODER 2 bits
- *    (pas CRL 4 bits).
- * 2. Bouton PC13 (config presente mais JAMAIS utilisee dans cette
- *    version "v1" du corrige officiel - vestige pour une "v2" avec jeu
- *    de reactivite) : retiree entierement ici, PC13 n'existe meme pas
- *    sur le connecteur du Nucleo-32 (cf. docs/correspondance-f103-f303.md).
- * 3. TIM4 (active dans l'original mais jamais utilise en v1, meme
- *    remarque que PC13) : retire. De toute facon absent du F303K8
- *    (cf. docs/correspondance-f103-f303.md §5).
- * 4. NVIC_ISER_SETENA_28/29 : macros absentes de notre CMSIS -
- *    remplacees par les decalages de bit bruts (1 << 28)/(1 << 29).
- *    IRQ28=TIM2 et IRQ29=TIM3 verifies identiques au F103 dans
- *    stm32f303x8.h.
- * 5. Horloge/PSC recalcules pour notre horloge REELLE actuelle
- *    (HSI 8 MHz, pas de PLL configuree - cf. notes de cours Partie 2/3) :
- *    le cours suppose 72 MHz (PSC=7199 -> tick 100us, d'ou le "10*rand()"
- *    pour convertir des ms en dixiemes de ms). Ici, PSC=7999 avec une
- *    horloge a 8 MHz donne un tick de EXACTEMENT 1 ms
- *    (8 000 000 / 8000 = 1000 Hz), ce qui supprime le besoin du
- *    multiplicateur "10*" : rand() renvoie deja directement des
- *    millisecondes, ARR = rand() (ou 300 pour le delai fixe) suffit.
- *    Resultat : le comportement reel (300 ms allume, 800-1800 ms
- *    eteint) est correct sur cette carte telle quelle, sans devoir
- *    configurer le PLL a 72 MHz au prealable.
+ * 1. Broche PWM : PA6 existe aussi sur le connecteur du Nucleo-32 (label
+ *    "A5"), et porte TIM3_CH1 sur le F303 comme sur le F103 - MAIS le
+ *    mecanisme de selection est totalement different :
+ *    - F103 : GPIOA->CRL, CNF=10 (AF push-pull) + MODE=10, valeur `0xA`
+ *      sur le nibble de la broche - un seul champ combine direction+config,
+ *      pas de choix explicite de quelle fonction alternative (l'AFIO_MAPR
+ *      global gere les remaps).
+ *    - F303 : GPIOA->MODER=10 (mode AF) sur la broche, PUIS
+ *      GPIOA->AFR[0] doit recevoir le numero d'AF explicite. Pour
+ *      TIM3_CH1 sur PA6, c'est **AF2** (verifie : le F303 expose TIM3_CH1
+ *      sur PA6 OU PB4, selectionnable via ce numero d'AF - a
+ *      revérifier dans le tableau d'alternate functions du datasheet
+ *      STM32F303K8 si le comportement observe ne correspond pas).
+ * 2. Toutes les autres macros de registres (RCC_APB1ENR_TIM3EN,
+ *    TIM_CCMR1_OC1M_x, TIM_CCER_CC1E, TIM_CR1_CEN, TIM_DIER_UIE,
+ *    TIM_SR_UIF) sont identiques nom pour nom entre F103 et F303 -
+ *    verifie dans stm32f303x8.h. Seul le GPIO change de logique.
+ * 3. `NVIC_ISER_SETENA_28` (cours) : macro absente de notre CMSIS,
+ *    remplacee par `(1 << 28)` (meme piege que sur tp06/correction
+ *    precedente - IRQ28 = TIM2, identique sur les deux puces).
+ * 4. Frequences recalculees pour l'horloge REELLE actuelle de cette
+ *    carte (HSI 8 MHz, pas de PLL configuree) plutot que de supposer
+ *    les 72 MHz du F103 :
+ *    - PWM 20 kHz : le cours utilise PSC=0, ARR=0xE0F (3599) a 72 MHz
+ *      (72 000 000 / 3600 = 20 000 Hz). A 8 MHz, PSC=0 et ARR=399
+ *      donnent le meme resultat (8 000 000 / 400 = 20 000 Hz).
+ *    - Balayage du rapport cyclique toutes les 100 ms : le cours utilise
+ *      ARR=999/PSC=7199 a 72 MHz. Ici, tick de 1 ms (PSC=7999, comme
+ *      dans tp05/tp07/correction precedente) + ARR=99 donnent
+ *      exactement 100 ms (100 ticks x 1 ms).
+ * 5. Valeur initiale du rapport cyclique : le cours appelle
+ *    `set_pulse_percentage(TIM3, 0x100)` - `0x100` = 256 en decimal,
+ *    largement hors de la plage 0-100 % attendue par cette fonction
+ *    (probable coquille du cours, `0x100` au lieu de `100`). Corrige ici
+ *    en `50` (50 %) - une valeur valide, sans consequence sur le
+ *    fonctionnement puisque l'IT de TIM2 recalcule le rapport cyclique
+ *    des le premier debordement (100 ms) de toute facon.
  */
 
 #include "stm32f3xx.h"
 
 /*****************************************************************
 Peripheriques utilises :
-GPIOB, broche 3 : pilote LD3 (LED verte utilisateur du F303K8)
-TIM2 : chronometre les 300 ms (LED allumee)
-TIM3 : chronometre l'intervalle aleatoire avant d'allumer la LED
+GPIOA, broche 6 (label "A5" sur le connecteur Nucleo-32) : sortie PWM,
+    fonction alternative AF2 = TIM3_CH1
+TIM3 : genere le signal PWM 20 kHz sur son canal 1
+TIM2 : interruption toutes les 100 ms, balaye le rapport cyclique de
+    TIM3 par pas de 5 % (boucle 0 -> 100 -> 0 -> ...)
 *****************************************************************/
 
-int rand(void);
-void configure_gpio_pb3(void);
-void set_gpio(GPIO_TypeDef *GPIO, int n);
-void reset_gpio(GPIO_TypeDef *GPIO, int n);
-void configure_timer(TIM_TypeDef *TIM, int psc, int arr);
-void configure_it(void);
-void start_timer(TIM_TypeDef *TIM);
-void stop_timer(TIM_TypeDef *TIM);
+void configure_gpio_pa6_alternate_push_pull(void);
+void configure_pwm_ch1_20khz(TIM_TypeDef *TIMER);
+void start_timer(TIM_TypeDef *TIMER);
+void set_pulse_percentage(TIM_TypeDef *TIMER, int pulse);
+void configure_timer2_with_it(void);
 
 int main(void)
 {
-    /* Configuration du port de sortie (LED) */
-    configure_gpio_pb3();
-
-    /* Configuration des timers (horloge + periode, sans les demarrer) */
-    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN | RCC_APB1ENR_TIM3EN;
-    configure_timer(TIM2, 7999, 300);
-    configure_timer(TIM3, 7999, rand());
-
-    /* Configuration des interruptions */
-    configure_it();
-
-    /* Demarrage du premier timer (attente aleatoire avant 1er allumage) */
+    configure_gpio_pa6_alternate_push_pull();
+    configure_pwm_ch1_20khz(TIM3);
+    set_pulse_percentage(TIM3, 50);
+    configure_timer2_with_it();
     start_timer(TIM3);
+    start_timer(TIM2);
 
-    /* Boucle d'attente du processeur - tout se passe dans les IT */
     while (1) {
     }
 
@@ -83,106 +87,80 @@ Corps des fonctions
 *****************************************************************/
 
 /**
- * Configure la broche 3 du port B (LD3, LED verte du F303K8)
- * en sortie push-pull.
+ * Configure PA6 en fonction alternative push-pull (AF2 = TIM3_CH1).
  */
-void configure_gpio_pb3(void)
+void configure_gpio_pa6_alternate_push_pull(void)
 {
-    RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
-    GPIOB->MODER &= ~(0x03 << 2 * 3);
-    GPIOB->MODER |= (0x01 << 2 * 3);
+    RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
+
+    /* Mode fonction alternative (10) sur la broche 6 */
+    GPIOA->MODER &= ~(0x03 << 2 * 6);
+    GPIOA->MODER |= (0x02 << 2 * 6);
+
+    /* AF2 (TIM3_CH1) dans AFR[0], nibble de la broche 6 */
+    GPIOA->AFR[0] &= ~GPIO_AFRL_AFRL6;
+    GPIOA->AFR[0] |= (2U << GPIO_AFRL_AFRL6_Pos);
 }
 
 /**
- * Met a 1 la sortie de la broche n du port GPIO.
+ * Configure TIMER, canal 1, en PWM mode 1 a 20 kHz (sans le demarrer).
  */
-void set_gpio(GPIO_TypeDef *GPIO, int n)
+void configure_pwm_ch1_20khz(TIM_TypeDef *TIMER)
 {
-    GPIO->ODR |= (0x01 << n);
+    RCC->APB1ENR |= RCC_APB1ENR_TIM3EN;
+
+    TIMER->PSC = 0;
+    TIMER->ARR = 399; /* 8 MHz / 400 = 20 kHz */
+
+    /* PWM mode 1 sur OC1 : OC1M = 110 */
+    TIMER->CCMR1 &= ~TIM_CCMR1_OC1M_0;
+    TIMER->CCMR1 |= TIM_CCMR1_OC1M_1 | TIM_CCMR1_OC1M_2;
+
+    /* Active la sortie du canal 1 */
+    TIMER->CCER |= TIM_CCER_CC1E;
 }
 
 /**
- * Met a 0 la sortie de la broche n du port GPIO.
+ * Demarre le timer TIMER.
  */
-void reset_gpio(GPIO_TypeDef *GPIO, int n)
+void start_timer(TIM_TypeDef *TIMER)
 {
-    GPIO->ODR &= ~(0x01 << n);
+    TIMER->CR1 |= TIM_CR1_CEN;
 }
 
 /**
- * Configure la periode du timer TIM (psc/arr) sans le demarrer.
+ * Regle le rapport cyclique de TIMER (canal 1) en pourcentage (0-100).
  */
-void configure_timer(TIM_TypeDef *TIM, int psc, int arr)
+void set_pulse_percentage(TIM_TypeDef *TIMER, int pulse)
 {
-    TIM->ARR = arr;
-    TIM->PSC = psc;
+    TIMER->CCR1 = TIMER->ARR * pulse / 100;
 }
 
 /**
- * Demarre le timer TIM.
+ * Configure TIM2 pour interrompre toutes les 100 ms (sans le demarrer).
  */
-void start_timer(TIM_TypeDef *TIM)
+void configure_timer2_with_it(void)
 {
-    TIM->CR1 |= TIM_CR1_CEN;
-}
+    RCC->APB1ENR |= RCC_APB1ENR_TIM2EN;
 
-/**
- * Arrete le timer TIM.
- */
-void stop_timer(TIM_TypeDef *TIM)
-{
-    TIM->CR1 &= ~TIM_CR1_CEN;
-}
-
-/**
- * Configure toutes les interruptions du systeme.
- */
-void configure_it(void)
-{
-    /* Interruption de TIM2 (IRQ 28, identique au F103) */
+    TIM2->PSC = 7999; /* tick de 1 ms sur l'horloge actuelle (8 MHz) */
+    TIM2->ARR = 99;   /* 100 ticks x 1 ms = 100 ms */
     TIM2->DIER |= TIM_DIER_UIE;
-    NVIC->ISER[0] |= (1 << 28);
 
-    /* Interruption de TIM3 (IRQ 29, identique au F103) */
-    TIM3->DIER |= TIM_DIER_UIE;
-    NVIC->ISER[0] |= (1 << 29);
+    NVIC->ISER[0] |= (1 << 28); /* IRQ 28 = TIM2, cf. correction precedente */
+    NVIC->IP[28] |= (7 << 4);
 }
 
 /*****************************************************************
-Fonctions d'interruption
+Fonction d'interruption
 *****************************************************************/
 
-/* Fin des 300 ms LED allumee -> on l'eteint et on relance une attente
-   aleatoire */
+/* Toutes les 100 ms : avance le rapport cyclique de TIM3 par pas de 5 %,
+   boucle de 0 a 100 puis repart a 0 (modulo 101 pour inclure 100) */
 void TIM2_IRQHandler(void)
 {
-    reset_gpio(GPIOB, 3);
-    stop_timer(TIM2);
-    configure_timer(TIM3, 7999, rand());
-    start_timer(TIM3);
+    static int pulse = 0;
     TIM2->SR &= ~TIM_SR_UIF;
-}
-
-/* Fin de l'attente aleatoire -> on allume la LED pour 300 ms */
-void TIM3_IRQHandler(void)
-{
-    set_gpio(GPIOB, 3);
-    stop_timer(TIM3);
-    start_timer(TIM2);
-    TIM3->SR &= ~TIM_SR_UIF;
-}
-
-/*****************************************************************
-Fonction pre-definie (identique au cours - generateur pseudo-aleatoire
-logiciel, aucune dependance materielle donc aucune adaptation F103/F303)
-*****************************************************************/
-
-/**
- * Retourne une valeur entiere pseudo-aleatoire comprise entre 800 et 1800.
- */
-int rand(void)
-{
-    static int randomseed = 0;
-    randomseed = (randomseed * 9301 + 49297) % 233280;
-    return 800 + (randomseed % 1000);
+    pulse = (pulse + 5) % 101;
+    set_pulse_percentage(TIM3, pulse);
 }
