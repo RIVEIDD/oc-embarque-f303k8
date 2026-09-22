@@ -37,7 +37,7 @@ Voir aussi :
 | 2026-09-10 | Nouvelle regle adoptee : chaque commande shell d'un TP est desormais consignee dans la section "Journal des commandes (par TP)" au fil de l'eau (pas seulement resumee en fin de session) - codifie aussi dans `CLAUDE.md`. `tp04-gpio` avance : LED PB3 en sortie (reprise de la logique `tp02`), remplacement du bouton USER (absent sur Nucleo-32) par le bouton SW d'un joystick externe sur breadboard (cablage 3V3 plutot que 5V pour rester simple sur la tolerance des GPIO, SW sur une broche libre avec `PUPDR` interne en pull-up puisque le module n'a pas de pull-up integre) ; plusieurs erreurs de code corrigees en autonomie (instruction hors fonction, mauvais port RCC active - GPIOA/GPIOC au lieu de GPIOB pour la LED -, typo `PIOA` au lieu de `GPIOA`). Demarrage de `tp05-timer` (Partie 3 ch.4, timers) : bug "TIM2->CNT reste a 0x0" investigue et resolu - fausse alerte, `PSC=7199`/`ARR=9999` sont les valeurs de l'exemple du cours calculees pour 72 MHz, alors que la carte tourne encore a 8 MHz (~9x plus lent que prevu, tick toutes les 900µs) ; le compteur avance bien, juste lu trop tot / a verifier avec `continue` + `Ctrl-C` plutot qu'un `print` immediat. Chapitre "Gerer le temps avec les timers" lu et resume dans "Notes de cours" (formule de periode, registres CR1/PSC/ARR/CNT/SR, detection UIF par polling). Aucun commit de code TP effectue cette session (uniquement discussions/corrections en cours d'ecriture). |
 | 2026-09-16 | Chapitre "Gerez vos interruptions" (application timer, Partie 3 ch.5) lu et resume : DIER/UIE, IRQ28=TIM2 verifie identique F103/F303, piege `NVIC_ISER_SETENA_28` absente du CMSIS F303 (remplacee par `(1<<28)`), alternative `NVIC_EnableIRQ`/`NVIC_SetPriority` decouverte dans `core_cm4.h`. `tp06-interrupt` ecrit par l'utilisateur en autonomie ; 2 bugs identifies et corriges par l'utilisateur suite a revue : handler togglant `GPIOA` (PA5, reste du code du cours) au lieu de `GPIOB` (PB3, la broche reellement configuree), et macro inexistante `TIM1_CR1_CEN` au lieu de `TIM_CR1_CEN` - build final valide (868 B Flash). **Exception ponctuelle** (comme `tp01-hello-uart`) : a la demande explicite de l'utilisateur, Claude a redige integralement le corrige du chapitre suivant ("LED aleatoire", Partie 3 ch.6) dans un nouveau dossier `correction/`, pour que l'utilisateur puisse verifier son propre travail plus tard sans que ca remplace l'exercice. Adapte depuis le corrige officiel du cours (`main_v1_correction.c` telecharge depuis static.oc-static.com) : LED PA5->PB3, PC13/TIM4 retires (vestiges non utilises dans cette version + absents du F303K8), PSC recalcule pour l'horloge reelle actuelle a 8 MHz (tick exact de 1 ms, simplifie le `10*rand()` du cours en `rand()` direct) plutot que de supposer les 72 MHz du F103. Build reussi (1140 B Flash). |
 | 2026-09-17 | `tp07_RandLEd` : l'utilisateur ecrit son propre TP "LED aleatoire" en autonomie (guidage Claude uniquement, `correction/` non consultee avant). Approche a un seul timer (TIM2, ARR alterne entre 300 et `rand()`) plutot que deux timers separes, plus ajout d'une interruption externe EXTI0/PA0 pour le bouton du joystick (SYSCFG_EXTICR, IMR, FTSR, NVIC IRQ 6 - nouveaute par rapport a `correction/`). Session de debug fournie riche en pieges generiques C (pas specifiques F103/F303, cf. "Pieges rencontres") : `stdbool.h` manquant, `~` au lieu de `!` pour toggler un booleen, appel de fonction avec mauvaise arite + `;` manquant, `RCC_APB2ENR_SYSCFGEN` ecrit par erreur dans `AHBENR`, toggle en boucle serree au lieu d'un `set_gpio`, absence de `volatile` sur une variable partagee avec l'IT, convention d'acquittement opposee entre `EXTI->PR` (ecrire 1) et `TIM->SR` (ecrire 0). Version fonctionnelle obtenue (LED s'allume/s'eteint aleatoirement), deux raffinements identifies mais pas encore confirmes corriges. Fin de session : l'utilisateur demande a Claude de gerer tous les commits restants (changement par rapport au fonctionnement habituel ou l'utilisateur gere ses propres commits de code). |
-| 2026-09-22 | Reprise : `tp07_RandLEd` verifie - les 2 raffinements de la session precedente (`set_gpio` au lieu du toggle en boucle serree, `volatile` sur `Led_State`) sont bien appliques et le build reste propre ; `EXTI0_IRQHandler` reste volontairement un stub, confirme par l'utilisateur comme conforme au perimetre du cours (detection du bouton prevue pour une iteration ulterieure du cours, pas cette version). **Exception ponctuelle** (2e apres la LED aleatoire) : a la demande explicite de l'utilisateur, Claude a implemente le chapitre "Configurez un modulateur de longueur d'impulsion" (PWM, Partie 4 ch.1) dans `correction/`, en **remplacant** le corrige "LED aleatoire" precedent (choix explicite de l'utilisateur - l'ancienne version reste recuperable via `git show 5d2a032:correction/src/main.c`). `correction/` devient ainsi un dossier de reference reutilise au fil des chapitres plutot qu'un TP fige. Adaptation notable : PA6/TIM3_CH1 existe sur les deux puces mais le F303 exige un numero d'AF explicite (**AF2**, trouve par recherche externe, a confirmer au besoin dans le datasheet) via `AFR[]`, la ou le F103 se contente d'un champ CRL combine sans ce choix explicite. Frequences PWM (20 kHz) et de balayage du rapport cyclique (100 ms) recalculees pour l'horloge reelle a 8 MHz. Coquille reperee dans le code du cours lui-meme (`set_pulse_percentage(TIM3, 0x100)`, hors plage 0-100%) et corrigee sans consequence fonctionnelle. Build reussi (1048 B Flash). |
+| 2026-09-22 | Reprise : `tp07_RandLEd` verifie - les 2 raffinements de la session precedente (`set_gpio` au lieu du toggle en boucle serree, `volatile` sur `Led_State`) sont bien appliques et le build reste propre ; `EXTI0_IRQHandler` reste volontairement un stub, confirme par l'utilisateur comme conforme au perimetre du cours (detection du bouton prevue pour une iteration ulterieure du cours, pas cette version). **Exception ponctuelle** (2e apres la LED aleatoire) : a la demande explicite de l'utilisateur, Claude a implemente le chapitre "Configurez un modulateur de longueur d'impulsion" (PWM, Partie 4 ch.1) dans `correction/`, en **remplacant** le corrige "LED aleatoire" precedent (choix explicite de l'utilisateur - l'ancienne version reste recuperable via `git show 5d2a032:correction/src/main.c`). `correction/` devient ainsi un dossier de reference reutilise au fil des chapitres plutot qu'un TP fige. Adaptation notable : PA6/TIM3_CH1 existe sur les deux puces mais le F303 exige un numero d'AF explicite (**AF2**, trouve par recherche externe, a confirmer au besoin dans le datasheet) via `AFR[]`, la ou le F103 se contente d'un champ CRL combine sans ce choix explicite. Frequences PWM (20 kHz) et de balayage du rapport cyclique (100 ms) recalculees pour l'horloge reelle a 8 MHz. Coquille reperee dans le code du cours lui-meme (`set_pulse_percentage(TIM3, 0x100)`, hors plage 0-100%) et corrigee sans consequence fonctionnelle. Build reussi (1048 B Flash). Chapitre ADC ("Domptez votre convertisseur analogique-numerique", Partie 4 ch.2) lu ; l'utilisateur n'a pas de potentiometre disponible, ne fera donc pas ce TP lui-meme. **3e exception ponctuelle** : Claude a etendu `correction/` (v3) en y ajoutant l'ADC (PA0=ADC1_IN1, lecture continue en boucle principale remplacant le balayage IT de TIM2 de la version PWM seule), et redige un resume complet de la procedure ADC generique + tableau comparatif registre-par-registre F103/F303 dans "Notes de cours". Peripherique identifie comme le plus profondement redessine rencontre jusqu'ici entre les deux puces (registres entierement renommes/restructures CR1/CR2/SR/SQR1/SQR3 -> CR/CFGR/ISR/SQR1, etape du regulateur de tension ADVREGEN totalement absente du F103, numerotation des canaux ADC sans rapport avec le F103 - PB0=IN8 sur F103, PA0=IN1 sur F303). Build reussi (1180 B Flash, un warning cosmetique de commentaire corrige). |
 
 ## Journal des commandes (par TP)
 
@@ -101,6 +101,17 @@ par l'utilisateur (`5d2a032`).
 make clean && make
 ```
 Build reussi (1048 B Flash, aucun warning).
+
+**v3 - ajout ADC (Partie 4 ch.2)** - `src/main.c` etendu (pas remplace
+cette fois : la PWM reste, le balayage par IT de TIM2 est retire au
+profit d'une lecture continue du potentiometre) (v2 PWM seule
+recuperable via `git show 1fe78ac:correction/src/main.c`) :
+```sh
+make clean && make
+```
+Un warning cosmetique rencontre puis corrige (`**` markdown dans un
+commentaire C interprete comme un `/*` imbrique - `-Wcomment`). Build
+final reussi (1180 B Flash, aucun warning).
 
 ### tp06-interrupt
 Ecrit par l'utilisateur en autonomie (application timer du chapitre
@@ -855,6 +866,55 @@ d'executer `main()`).
 l'evenement survient, pas apres avoir fini le tour de boucle), et
 n'occupe pas le CPU a attendre activement.
 
+### Partie 4 - Domptez votre convertisseur analogique-numerique (ADC)
+[Page du cours](https://openclassrooms.com/fr/courses/4117396-developpez-en-c-pour-l-embarque/4630046-domptez-votre-convertisseur-analogique-numerique)
+
+**Pas de TP materiel fait** (pas de potentiometre disponible) - implemente
+directement dans `correction/` (v3, combine avec la PWM du chapitre
+precedent) a la demande de l'utilisateur. Le potentiometre du joystick
+deja utilise sur `tp04`/`tp07` (broches VRx/VRy, non cablees jusqu'ici)
+peut servir de substitut le jour ou l'utilisateur veut tester ce montage
+sans acheter de vrai potentiometre.
+
+**Concept** : un potentiometre forme un pont diviseur de tension (0 a
+3.3V selon sa position). L'ADC echantillonne cette tension et la
+convertit en une valeur numerique - 12 bits sur ce chip, donc 4096
+valeurs possibles (0 a 4095/`0xFFF`) representant le 0-3.3V.
+
+**Etapes generiques pour lire une valeur ADC (independant F103/F303,
+juste les registres different) :**
+1. Configurer la broche choisie en **entree analogique** (desactive le
+   buffer numerique d'entree sur cette broche)
+2. Activer l'horloge du peripherique ADC (+ choisir sa source d'horloge)
+3. **Calibrer** l'ADC (procedure interne au silicium, compense les
+   variations de fabrication)
+4. **Activer** l'ADC et attendre qu'il soit pret
+5. Configurer la **sequence de conversion** : combien de canaux a
+   lire, dans quel ordre (ici, une sequence d'un seul canal)
+6. **Declencher** une conversion, attendre le flag de fin de
+   conversion, **lire le resultat**, **acquitter le flag**
+
+**Comparatif des registres, etape par etape (F103RB du cours vs notre
+F303K8, tout verifie dans `stm32f303x8.h` avant utilisation) :**
+
+| Etape | F103 (cours) | F303K8 |
+|---|---|---|
+| Mode analogique GPIO | `CRL` nibble a `0000` (MODE=00+CNF=00) | `MODER` = **`11`** (pas `00`, qui est entree numerique sur F303 !) |
+| Horloge peripherique | `RCC->APB2ENR`/`ADC1EN` + `RCC->CFGR`/`ADCPRE_DIV6` (limite a 14 MHz) | `RCC->AHBENR`/`ADC12EN` (bit 28, partage ADC1+ADC2) + `ADC12_COMMON->CCR`/`CKMODE` (mode synchrone HCLK/1 choisi ici) |
+| Etape sans equivalent F103 | - | **`ADC_CR_ADVREGEN`** : activer le regulateur de tension interne de l'ADC et attendre sa stabilisation (~10-20 µs) - obligatoire sur F303, sinon l'ADC ne fonctionne pas |
+| Calibration | `CR2.CAL`, attendre qu'il retombe a 0 | `CR.ADCAL`, meme principe (nom different) |
+| Activation | `CR2.ADON` (un seul bit fait activation ET declenchement) | `CR.ADEN` (active) - separe de `ADSTART` (declenche), attendre le flag **`ISR.ADRDY`** avant de continuer |
+| Sequence de conversion | `SQR1` (longueur) + `SQR3` (1er canal) - repartis sur plusieurs registres | `SQR1` regroupe **longueur (`L`) ET 1er canal (`SQ1`)** dans le meme registre - disposition differente, pas de `SQR3` a chercher pour le 1er canal |
+| Declenchement conversion | reecrire `CR2.ADON` | `CR.ADSTART` (bit dedie) |
+| Fin de conversion | `SR.EOC`, efface en ecrivant **0** (`&= ~EOC`) | `ISR.EOC`, efface en ecrivant **1** (`|= EOC`) - meme convention que `EXTI->PR` deja vu, differente de `TIM->SR` |
+| Lecture resultat | `DR` (avec un masque pour ignorer les bits hauts) | `DR` (directement, resultat 12 bits deja aligne) |
+| Broche potentiometre exemple | PB0 = **ADC1_IN8** | PA0 = **ADC1_IN1** (numerotation de canal totalement differente, pas de correspondance directe entre le numero de broche et le numero de canal) |
+
+**A retenir** : c'est le peripherique le plus profondement redessine
+rencontre jusqu'ici entre F103 et F303 (bien plus qu'un renommage de
+registres comme pour GPIO/TIM/USART) - une etape entiere (le regulateur
+de tension) n'existe meme pas sur le F103.
+
 ## Prochaines etapes
 
 - [ ] (optionnel, priorite basse) Confirmer `tp01-hello-uart` sur la carte
@@ -888,9 +948,14 @@ n'occupe pas le CPU a attendre activement.
       visuellement, et renommer `TARGET` dans le Makefile.
       `EXTI0_IRQHandler` reste un stub assume (hors perimetre de cette
       version du cours).
-- [ ] Ecrire soi-meme le TP PWM (Partie 4 ch.1) en autonomie, puis
-      comparer avec `correction/` (v2, build valide, pas encore
-      flashe/teste sur la carte).
+- [ ] Ecrire soi-meme le TP PWM (Partie 4 ch.1) en autonomie si
+      l'occasion se presente (LED + PWM ne necessitent pas de
+      potentiometre), puis comparer avec `correction/` (build valide,
+      pas encore flashe/teste sur la carte - contient maintenant PWM+ADC
+      combines, v3).
+- [ ] (optionnel, si acquisition d'un potentiometre ou reutilisation du
+      VRx/VRy du joystick) Flasher `correction/` v3 et verifier que le
+      rapport cyclique de la LED suit bien la position du potentiometre.
 - [ ] Faire le quiz de fin de Partie 3 ("Microcontroleur et premiers
       peripheriques")
 - [ ] Terminer le quiz de la Partie 2 (toujours en attente depuis le
